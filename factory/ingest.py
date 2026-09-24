@@ -8,11 +8,13 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import subprocess
+import threading
 from pathlib import Path
 
 from . import db as _db
 
 YDL_FORMAT = "bv*[height<=720]+ba/b[height<=720]/b"
+CHAT_TIMEOUT = 240
 
 
 def vod_paths(day_dir: Path, video_id: str) -> tuple[Path, Path]:
@@ -59,6 +61,18 @@ def download_chat(url: str, out_chat: Path) -> bool:
         return False
 
 
+def _safe_chat(chat_dl, url: str, chat: Path) -> bool:
+    try:
+        return bool(chat_dl(url, chat))
+    except Exception as exc:
+        print(f"ingest: chat falhou ({type(exc).__name__}) — seguindo sem chat")
+        try:
+            chat.write_text("[]", encoding="utf-8")
+        except Exception:
+            pass
+        return False
+
+
 def register_vod(
     db_path: Path, video_id: str, plataforma: str, streamer: str, duracao: float = 0
 ) -> None:
@@ -99,12 +113,28 @@ def ingest_day(
         if not ok and url:
             ok = bool(downloader(url, mp4))
         if not ok:
+            print(f"ingest: {vid} download falhou — pulando")
             continue
+        try:
+            print(f"ingest: {vid} mp4 {mp4.stat().st_size // 1024}KB ok")
+        except Exception:
+            pass
         if not chat.exists():
-            try:
-                chat_dl(url, chat)
-            except Exception:
-                pass
+            # chat-downloader tem retry interno agressivo: isola em thread
+            # daemon com timeout para não sequestrar a diária.
+            holder: dict = {}
+            t = threading.Thread(target=lambda: holder.update(
+                r=_safe_chat(chat_dl, url, chat)), daemon=True)
+            t.start()
+            t.join(CHAT_TIMEOUT)
+            if t.is_alive():
+                print(f"ingest: {vid} chat timeout {CHAT_TIMEOUT}s — seguindo sem chat")
+                try:
+                    chat.write_text("[]", encoding="utf-8")
+                except Exception:
+                    pass
+            else:
+                print(f"ingest: {vid} chat {'ok' if holder.get('r') else 'vazio/falhou'}")
         register_vod(db_path, vid, str(v.get("plataforma") or ""), str(v.get("streamer") or ""))
         prontos.append({**v, "mp4": str(mp4), "chat": str(chat)})
     (day_dir / "ingest.json").write_text(

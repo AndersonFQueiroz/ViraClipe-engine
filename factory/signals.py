@@ -132,7 +132,11 @@ def build_candidatos(day_dir: Path, ingest_item: dict, runner=subprocess.run) ->
     except Exception:
         messages = []
     cw = chat_windows(messages if isinstance(messages, list) else [])
-    peaks = ebur128_peaks(Path(ingest_item["mp4"]), runner=runner) if Path(ingest_item.get("mp4", "")).exists() else []
+    mp4 = Path(ingest_item.get("mp4", ""))
+    peaks = ebur128_peaks(mp4, runner=runner) if mp4.exists() else []
+    print(f"signals: {ingest_item.get('video_id')} "
+          f"chat_msgs={len(messages) if isinstance(messages, list) else '?!'} "
+          f"mp4={'ok' if mp4.exists() else 'AUSENTE'} picos={len(peaks)}")
     aw = audio_windows(peaks)
     if not cw and not aw:
         return []
