@@ -11,7 +11,7 @@ def test_slots_iguais_reellfy():
 def test_defaults_free_e_auto():
     assert S.SCORE_THRESHOLD == 75
     assert S.DAILY_CAP == 5
-    assert S.GEMINI_MODEL == "gemini-2.0-flash"
+    assert S.GEMINI_MODEL == "gemini-2.5-flash"
 
 
 def test_score_formula_documentada():

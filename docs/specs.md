@@ -71,7 +71,7 @@ Processos separados que compartilham `data/`:
 - 1 call Flash com áudio ou transcrição + prompt fixo PT-BR retorna JSON:
   `{"viral_score":0-100,"motivo":"","titulo":"","descricao":"","hashtags":[]}`.
 - `score_final = 0.5*chat + 0.2*audio + 0.3*viral_score`.
-- `GEMINI_MODEL` default `gemini-2.0-flash` (override via env).
+- `GEMINI_MODEL` default `gemini-2.5-flash` (override via env).
   Timeout 60s, retry 1x, em 429/quota usa fallback local:
   `viral_score=null`, título template `"Melhor momento de @streamer"`.
 - saída: `data/<dia>/scored.json` ordenado, top 5 com `>=75` vão ao corte.

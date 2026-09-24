@@ -45,7 +45,7 @@ def main(argv: list[str]) -> int:
         return 2
     log(f"ViraClipe — {day}")
     import os as _os
-    model = _os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    model = _os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     api_key = _os.environ.get("GEMINI_API_KEY", "")
 
     discovery.main(day, DB_PATH, FACTORY_DATA, MAX_VODS_DIA)

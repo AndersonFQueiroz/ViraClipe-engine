@@ -26,7 +26,7 @@ DAILY_CAP = env_int("DAILY_CAP", 5)
 MIN_VIEWERS = env_int("MIN_VIEWERS", 200)
 MAX_VODS_DIA = env_int("MAX_VODS_DIA", 5)
 
-GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = env("GEMINI_MODEL", "gemini-2.5-flash")
 DB_PATH = Path(env("DB_PATH", "data/viraclipe.db"))
 FACTORY_DATA = Path(env("FACTORY_DATA", "data/factory"))
 HANDLE = "@ViraClipe"
