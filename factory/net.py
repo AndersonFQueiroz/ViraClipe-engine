@@ -46,6 +46,29 @@ def call(func: Callable[..., T], *args, tries: int = 3, base: float = 4.0, **kwa
     raise last
 
 
+_LLM_RETRYABLE = ("429", "503", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "overloaded", "high demand")
+
+
+def llm_retryable(exc: BaseException) -> bool:
+    s = f"{type(exc).__name__} {exc}"
+    return any(k in s for k in _LLM_RETRYABLE)
+
+
+def llm_call(fn: Callable[[], T], tries: int = 2, wait: float = 20.0) -> T:
+    """1 retry p/ 429/503 do Gemini free. Não-retryable falha na hora."""
+    last: BaseException | None = None
+    for i in range(max(1, tries)):
+        try:
+            return fn()
+        except Exception as exc:
+            last = exc
+            if not llm_retryable(exc) or i >= tries - 1:
+                raise
+            time.sleep(wait)
+    assert last is not None
+    raise last
+
+
 def post(session: requests.Session, url: str, **kwargs) -> requests.Response:
     def _do() -> requests.Response:
         r = session.post(url, **kwargs)

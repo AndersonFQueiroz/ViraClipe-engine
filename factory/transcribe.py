@@ -35,27 +35,32 @@ def extract_snippet_audio(mp4: Path, t_inicio: float, duracao: float,
 
 
 def transcribe_file(mp3: Path, model: str, api_key: str, timeout: int = 120) -> str:
-    """Sobe o mp3 ao Files API, transcreve, apaga remoto. Import tardio."""
+    """Sobe o mp3 ao Files API, transcreve, apaga remoto. 1 retry em 429/503."""
     from google import genai  # type: ignore
 
-    client = genai.Client(api_key=api_key)
-    remote = client.files.upload(file=str(mp3))
-    try:
-        deadline = time.time() + timeout
-        while getattr(remote, "state", None) not in (None, "ACTIVE"):
-            if time.time() > deadline:
-                raise TimeoutError("arquivo não ativou no Files API")
-            time.sleep(2)
-            remote = client.files.get(name=remote.name)
-        resp = client.models.generate_content(
-            model=model, contents=[PROMPT_TRANSCRIBE, remote],
-        )
-        return (getattr(resp, "text", "") or "").strip()[:4000]
-    finally:
+    from . import net as _net
+
+    def _do() -> str:
+        client = genai.Client(api_key=api_key)
+        remote = client.files.upload(file=str(mp3))
         try:
-            client.files.delete(name=remote.name)
-        except Exception:
-            pass
+            deadline = time.time() + timeout
+            while getattr(remote, "state", None) not in (None, "ACTIVE"):
+                if time.time() > deadline:
+                    raise TimeoutError("arquivo não ativou no Files API")
+                time.sleep(2)
+                remote = client.files.get(name=remote.name)
+            resp = client.models.generate_content(
+                model=model, contents=[PROMPT_TRANSCRIBE, remote],
+            )
+            return (getattr(resp, "text", "") or "").strip()[:4000]
+        finally:
+            try:
+                client.files.delete(name=remote.name)
+            except Exception:
+                pass
+
+    return _net.llm_call(_do)
 
 
 def transcribe_day(day: str, factory_data: Path, model: str = "gemini-3.6-flash",
@@ -82,6 +87,13 @@ def transcribe_day(day: str, factory_data: Path, model: str = "gemini-3.6-flash"
     fn = transcriber or (lambda mp3: transcribe_file(mp3, model, api_key))
     audio_dir = day_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
+    import os as _os
+
+    try:
+        pace = float(_os.environ.get("LLM_PACE_SEC", "4"))
+    except ValueError:
+        pace = 4.0
+    first = True
     for c in cands:
         key = f"{c.get('video_id')}:{c.get('t_inicio')}"
         if out.get(key):
@@ -95,6 +107,9 @@ def transcribe_day(day: str, factory_data: Path, model: str = "gemini-3.6-flash"
             if not extract_snippet_audio(Path(src), float(c.get("t_inicio", 0)), dur, mp3, runner=runner):
                 continue
         try:
+            if not first and transcriber is None and pace > 0:
+                time.sleep(pace)
+            first = False
             out[key] = fn(mp3)
         except Exception:
             continue

@@ -59,16 +59,34 @@ def parse_gemini_json(text: str) -> dict:
     return data
 
 
+def _pace() -> None:
+    import os as _os
+    import time as _t
+
+    try:
+        sec = float(_os.environ.get("LLM_PACE_SEC", "4"))
+    except ValueError:
+        sec = 4.0
+    if sec > 0:
+        _t.sleep(sec)
+
+
 def call_gemini(transcrito: str, streamer: str, model: str, api_key: str, timeout: int = 60) -> dict:
-    """1 call Flash. Import tardio para não quebrar no Termux sem a lib."""
+    """1 call Flash + 1 retry em 429/503. Import tardio p/ Termux sem a lib."""
     from google import genai  # type: ignore
-    client = genai.Client(api_key=api_key)
-    resp = client.models.generate_content(
-        model=model,
-        contents=f"{active_prompt()}\nSTREAMER: {streamer}\nTRECHO: {transcrito[:4000]}",
-    )
-    text = getattr(resp, "text", "") or ""
-    return parse_gemini_json(text)
+
+    from . import net as _net
+
+    def _do() -> dict:
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model=model,
+            contents=f"{active_prompt()}\nSTREAMER: {streamer}\nTRECHO: {transcrito[:4000]}",
+        )
+        text = getattr(resp, "text", "") or ""
+        return parse_gemini_json(text)
+
+    return _net.llm_call(_do)
 
 
 def score_candidatos(
@@ -95,6 +113,8 @@ def score_candidatos(
         descricao, hashtags, motivo = fb_cred, [], ""
         if fn is not None:
             try:
+                if i > 0 and gemini_fn is None:
+                    _pace()  # evita 429/503 em rajada no free tier
                 data = fn(texto, str(c.get("streamer") or ""), model, api_key) if gemini_fn is None else fn(texto, c)
                 viral = float(data.get("viral_score", 50))
                 titulo = str(data.get("titulo") or titulo)[:70]

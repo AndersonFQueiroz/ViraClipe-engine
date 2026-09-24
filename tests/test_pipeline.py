@@ -119,6 +119,30 @@ def test_build_candidatos_marca_chat_none(tmp_path):
     assert out and all(c["chat"] is None for c in out)
 
 
+def test_llm_retry():
+    from factory import net as _net
+
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("503 UNAVAILABLE temporário")
+        return "ok"
+
+    assert _net.llm_call(flaky, wait=0.01) == "ok"
+    assert len(calls) == 2
+
+    def fatal():
+        raise ValueError("resposta sem JSON")
+
+    try:
+        _net.llm_call(fatal, wait=0.01)
+        assert False, "devia levantar"
+    except ValueError:
+        pass
+
+
 def test_score_final_e_fallback_sem_chave():
     cands = [{"video_id": "v1", "t_inicio": 10.0, "chat": 90.0, "audio": 80.0,
               "streamer": "alguem", "plataforma": "twitch", "url": "https://x"}]
