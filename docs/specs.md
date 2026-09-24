@@ -71,6 +71,8 @@ Processos separados que compartilham `data/`:
 - 1 call Flash com áudio ou transcrição + prompt fixo PT-BR retorna JSON:
   `{"viral_score":0-100,"motivo":"","titulo":"","descricao":"","hashtags":[]}`.
 - `score_final = 0.5*chat + 0.2*audio + 0.3*viral_score`.
+  Sem replay de chat (chat-downloader quebrado p/ Twitch): `chat=None` e a
+  fórmula renormaliza para `0.4*audio + 0.6*viral` (flag `renorm=true`).
 - `GEMINI_MODEL` default `gemini-3.6-flash` (override via env).
   Timeout 60s, retry 1x, em 429/quota usa fallback local:
   `viral_score=null`, título template `"Melhor momento de @streamer"`.

@@ -93,5 +93,8 @@ jobs:
             data/factory/*/pack.json
             data/factory/*/buffer.json
             data/factory/*/scored.json
+            data/factory/*/scored_full.json
+            data/factory/*/transcritos.json
+            data/factory/*/candidatos.json
           retention-days: 1
           if-no-files-found: ignore

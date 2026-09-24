@@ -29,9 +29,14 @@ def active_prompt() -> str:
     return get_gemini_prompt()
 
 
-def score_final(chat: float, audio: float, viral: float | None) -> float:
+def score_final(chat: float | None, audio: float, viral: float | None) -> float:
     v = float(viral) if viral is not None else 50.0
     w_chat, w_audio, w_llm = score_weights()
+    if chat is None:
+        # Sem replay de chat (ex: Twitch via lib quebrada): redistribui o peso
+        # do chat proporcionalmente entre áudio e LLM. Registrado em 'renorm'.
+        tot = (w_audio + w_llm) or 1.0
+        return round((w_audio / tot) * float(audio) + (w_llm / tot) * v, 1)
     return round(w_chat * float(chat) + w_audio * float(audio) + w_llm * v, 1)
 
 
@@ -74,6 +79,7 @@ def score_candidatos(
     threshold: float = 75.0,
     daily_cap: int = 5,
     gemini_fn=None,
+    audit_path: Path | None = None,
 ) -> list[dict]:
     transcritos = transcritos or {}
     fn = gemini_fn or (call_gemini if api_key else None)
@@ -101,13 +107,21 @@ def score_candidatos(
                     descricao = (descricao + f" Créditos: @{streamer}").strip()
             except Exception:
                 viral = None
-        final = score_final(float(c.get("chat", 50)), float(c.get("audio", 50)), viral)
+        chat = c.get("chat", 50)
+        chat_f = None if chat is None else float(chat)
+        final = score_final(chat_f, float(c.get("audio", 50)), viral)
         scored.append({
             **c, "cut_id": f"{c.get('video_id')}-{float(c.get('t_inicio', 0)):.0f}",
             "viral": viral, "score_final": final, "titulo": titulo,
             "descricao": descricao, "hashtags": hashtags, "motivo": motivo,
+            "renorm": chat is None,
         })
     scored.sort(key=lambda s: s["score_final"], reverse=True)
+    if audit_path is not None:
+        try:
+            audit_path.write_text(json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
+        except Exception:
+            pass
     return [s for s in scored if s["score_final"] >= threshold][:daily_cap]
 
 
@@ -121,7 +135,8 @@ def score_day(
     if not cand_path.exists():
         return []
     cands = json.loads(cand_path.read_text(encoding="utf-8"))
-    out = score_candidatos(cands, transcritos, model, api_key, threshold, daily_cap, gemini_fn)
+    out = score_candidatos(cands, transcritos, model, api_key, threshold, daily_cap, gemini_fn,
+                           audit_path=day_dir / "scored_full.json")
     (day_dir / "scored.json").write_text(
         json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8"
     )

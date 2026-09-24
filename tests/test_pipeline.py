@@ -91,6 +91,34 @@ def test_ebur_cmd_somente_audio():
     assert "-vn" in cmd and "ebur128" in " ".join(cmd)
 
 
+def test_score_final_renorm_sem_chat():
+    # sem replay: 0.4*80 + 0.6*90 = 86.0
+    assert SC.score_final(None, 80.0, 90.0) == 86.0
+    # sem chat e sem viral: 0.4*80 + 0.6*50 = 62.0
+    assert SC.score_final(None, 80.0, None) == 62.0
+
+
+def test_build_candidatos_marca_chat_none(tmp_path):
+    from factory import signals as SG2
+    import json as _json
+    day = tmp_path / "d"
+    day.mkdir()
+    mp4 = day / "v.mp4"
+    mp4.write_bytes(b"x" * 200_000)
+    chat = day / "v.chat.json"
+    chat.write_text("[]", encoding="utf-8")
+    item = {"video_id": "v", "streamer": "s", "plataforma": "twitch",
+            "url": "https://x", "mp4": str(mp4), "chat": str(chat)}
+
+    class _R:
+        stderr = "".join(f"[x] t: {t}.0 M: -20.0\n" for t in range(0, 120, 5))
+        stdout = ""
+
+    out = SG2.build_candidatos(day, item,
+                               runner=lambda *a, **k: _R())
+    assert out and all(c["chat"] is None for c in out)
+
+
 def test_score_final_e_fallback_sem_chave():
     cands = [{"video_id": "v1", "t_inicio": 10.0, "chat": 90.0, "audio": 80.0,
               "streamer": "alguem", "plataforma": "twitch", "url": "https://x"}]

@@ -47,7 +47,7 @@ Nenhum ML local pesado no LG.
 Apenas os top candidatos vão ao Gemini Flash (free tier AI Studio):
 1 call = transcrição do snippet + `viral_score 0-100` + título PT-BR +
 descrição + hashtags. Nada de transcrever live de 2h.
-`score_final = 0.5*chat + 0.2*audio + 0.3*llm`.
+`score_final = 0.5*chat + 0.2*audio + 0.3*llm` (sem chat: `0.4*audio + 0.6*llm`).
 Publica se `>= SCORE_THRESHOLD` (default 75). Se quota falhar,
 fallback usa só score local e título template, sem travar o dia.
 

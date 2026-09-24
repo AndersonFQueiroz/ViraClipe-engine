@@ -82,7 +82,7 @@ cortes (YouTube Shorts + TikTok + Instagram Reels via Buffer, Kwai via pack manu
               └─────────────────────────────┘
 ```
 
-Fórmula do score: `final = 0.5*chat + 0.2*audio + 0.3*llm` → publica se `≥ 75`.
+Fórmula do score: `final = 0.5*chat + 0.2*audio + 0.3*llm` → publica se `≥ 75`. Sem replay de chat: renormaliza p/ `0.4*audio + 0.6*llm`.
 
 ---
 

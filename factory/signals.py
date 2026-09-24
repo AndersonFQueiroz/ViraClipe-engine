@@ -142,6 +142,7 @@ def build_candidatos(day_dir: Path, ingest_item: dict, runner=subprocess.run) ->
     aw = audio_windows(peaks)
     if not cw and not aw:
         return []
+    has_chat = bool(cw)
     if not cw:
         cw = [{"t_inicio": w["t_inicio"], "t_fim": w["t_fim"], "chat": 50.0} for w in aw]
     cands = fuse(cw, aw)
@@ -150,6 +151,8 @@ def build_candidatos(day_dir: Path, ingest_item: dict, runner=subprocess.run) ->
         c["streamer"] = ingest_item.get("streamer")
         c["plataforma"] = ingest_item.get("plataforma")
         c["url"] = ingest_item.get("url")
+        if not has_chat:
+            c["chat"] = None  # sem replay: score renormaliza (audio+llm)
     return cands
 
 
