@@ -102,6 +102,7 @@ def score_candidatos(
     transcritos = transcritos or {}
     fn = gemini_fn or (call_gemini if api_key else None)
     scored: list[dict] = []
+    _logged_err = False
     for i, c in enumerate(candidatos):
         key = f"{c.get('video_id')}:{c.get('t_inicio')}"
         texto = transcritos.get(key, "")
@@ -125,7 +126,10 @@ def score_candidatos(
                 _txt = f"{titulo} {descricao}"
                 if streamer and "@" not in _txt and "twitch.tv" not in _txt and "youtube.com" not in _txt:
                     descricao = (descricao + f" Créditos: @{streamer}").strip()
-            except Exception:
+            except Exception as exc:
+                if not _logged_err:
+                    print(f"score: Gemini falhou ({type(exc).__name__}: {str(exc)[:120]}) — fallback local")
+                    _logged_err = True
                 viral = None
         chat = c.get("chat", 50)
         chat_f = None if chat is None else float(chat)

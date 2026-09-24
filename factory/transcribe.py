@@ -94,6 +94,7 @@ def transcribe_day(day: str, factory_data: Path, model: str = "gemini-3.6-flash"
     except ValueError:
         pace = 4.0
     first = True
+    err_logged = False
     for c in cands:
         key = f"{c.get('video_id')}:{c.get('t_inicio')}"
         if out.get(key):
@@ -111,7 +112,10 @@ def transcribe_day(day: str, factory_data: Path, model: str = "gemini-3.6-flash"
                 time.sleep(pace)
             first = False
             out[key] = fn(mp3)
-        except Exception:
+        except Exception as exc:
+            if not err_logged:
+                print(f"transcribe: falhou ({type(exc).__name__}: {str(exc)[:120]})")
+                err_logged = True
             continue
     cache_path.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     return out
