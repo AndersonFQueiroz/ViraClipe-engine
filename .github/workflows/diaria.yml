@@ -110,3 +110,35 @@ jobs:
         with:
           path: data/viraclipe.db
           key: viraclipe-db-${{ github.run_id }}
+      - name: Avisa dono no Telegram (sempre)
+        if: always()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python3 - <<'EOF'
+          import glob, os, urllib.request, urllib.parse
+          tok, chat, st = (os.environ.get("TG_TOKEN", ""), os.environ.get("TG_CHAT", ""),
+                           os.environ.get("JOB_STATUS", "?"))
+          if not (tok and chat):
+              print("sem Telegram configurado — aviso pulado")
+              raise SystemExit(0)
+          logs = sorted(glob.glob("data/logs/cron-*.log"))
+          day = logs[-1].split("cron-")[-1].replace(".log", "") if logs else "?"
+          res = []
+          if logs:
+              txt = open(logs[-1], encoding="utf-8", errors="replace").read()
+              for line in txt.splitlines():
+                  if any(k in line for k in ("Discovery:", "Disco livre", "Candidatos:",
+                                             "Transcritos:", "Selecionados", "QC OK",
+                                             "QC FALHA", "FALHA", "FIM ", "Nenhuma VOD",
+                                             "falhou", "Pack logado", "Buffer OK", "SEM ")):
+                      res.append(line.strip()[:160])
+          icon = "✅" if st == "success" else "🚨"
+          msg = f"{icon} ViraClipe {day} — {st}\n" + ("\n".join(res[-12:]) if res else "(sem resumo no log)")
+          data = urllib.parse.urlencode({"chat_id": chat, "text": msg[:3500]}).encode()
+          urllib.request.urlopen(f"https://api.telegram.org/bot{tok}/sendMessage",
+                                 data=data, timeout=30)
+          print("aviso enviado:", st)
+          EOF
