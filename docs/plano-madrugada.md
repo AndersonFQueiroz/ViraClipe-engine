@@ -1,6 +1,8 @@
-# Plano — ViraClipe autônomo de madrugada (S20 FE)
+# Plano — ViraClipe autônomo (GitHub Actions, 21:30 BRT)
 
-**Status:** planejado, não implementado. Salvo em 22/09/2026.
+**Status:** migrado do S20 FE para Actions em 24/09/2026. Compute 100% no
+runner; S20/LG aposentados como compute. Banco persiste via Actions cache
+(`viraclipe-db-*`) para dedup/denylist entre dias.
 **Decisão base:** o único host sempre ligado (LG K22) é fraco demais para o
 pipeline; o Debian com XFCE no S20 FE (SD865) é o host de execução.
 O LG fica só com o bot leve (`/status /fila /remover`) + log do pack.

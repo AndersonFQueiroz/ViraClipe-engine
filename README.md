@@ -174,7 +174,7 @@ pytest -q
 
 | Horário BRT | O quê |
 |:---|:---|
-| 03h-05h | Pipeline roda sozinho no S20 FE (Debian) |
+| 21h30 | GitHub Actions roda o pipeline sozinho (diaria.yml no mirror) |
 | 9h / 12h / 15h / 18h / 21h | Buffer publica 1 corte por slot |
 | 21h | Você confere `/fila` + `buffer.json` na sessão Debian |
 
