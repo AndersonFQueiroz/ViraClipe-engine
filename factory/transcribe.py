@@ -90,9 +90,9 @@ def transcribe_day(day: str, factory_data: Path, model: str = "gemini-3.6-flash"
     import os as _os
 
     try:
-        pace = float(_os.environ.get("LLM_PACE_SEC", "4"))
+        pace = float(_os.environ.get("LLM_PACE_SEC", "8"))
     except ValueError:
-        pace = 4.0
+        pace = 8.0
     first = True
     err_logged = False
     for c in cands:

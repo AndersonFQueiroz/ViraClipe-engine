@@ -64,9 +64,9 @@ def _pace() -> None:
     import time as _t
 
     try:
-        sec = float(_os.environ.get("LLM_PACE_SEC", "4"))
+        sec = float(_os.environ.get("LLM_PACE_SEC", "8"))
     except ValueError:
-        sec = 4.0
+        sec = 8.0
     if sec > 0:
         _t.sleep(sec)
 
