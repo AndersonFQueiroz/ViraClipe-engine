@@ -13,12 +13,12 @@ on:
       max_vods:
         description: "Max VODs no dia"
         required: false
-        default: "2"
+        default: "1"
       publish:
         description: "Postar no Buffer de verdade?"
         required: false
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
