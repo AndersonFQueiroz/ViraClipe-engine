@@ -16,7 +16,7 @@ PROMPT_TRANSCRIBE = (
     "sem comentários nem formatação. Se não houver fala, retorne OUVIDO_VAZIO."
 )
 
-MAX_SNIPPETS = 10
+MAX_SNIPPETS = 6
 
 
 def extract_snippet_audio(mp4: Path, t_inicio: float, duracao: float,
@@ -40,8 +40,8 @@ def transcribe_file(mp3: Path, model: str, api_key: str, timeout: int = 120) -> 
 
     from . import net as _net
 
-    def _do() -> str:
-        client = genai.Client(api_key=api_key)
+    def _do(key: str) -> str:
+        client = genai.Client(api_key=key or api_key)
         remote = client.files.upload(file=str(mp3))
         try:
             deadline = time.time() + timeout
@@ -60,7 +60,7 @@ def transcribe_file(mp3: Path, model: str, api_key: str, timeout: int = 120) -> 
             except Exception:
                 pass
 
-    return _net.llm_call(_do)
+    return _net.llm_with_keys(_do, api_key)
 
 
 def transcribe_day(day: str, factory_data: Path, model: str = "gemini-3.6-flash",

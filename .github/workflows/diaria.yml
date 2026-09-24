@@ -3,7 +3,7 @@ name: ViraClipe Diaria (split publico/full)
 # PÚBLICO-SAFE: só main + schedule leem Secrets. PR de fork NUNCA recebe secret.
 on:
   schedule:
-    - cron: "0 6 * * *" # 03h BRT
+    - cron: "30 7 * * *" # 04:30 BRT (quota Gemini free reseta ~04h BRT)
   workflow_dispatch:
     inputs:
       date:

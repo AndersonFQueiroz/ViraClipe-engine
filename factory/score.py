@@ -77,8 +77,8 @@ def call_gemini(transcrito: str, streamer: str, model: str, api_key: str, timeou
 
     from . import net as _net
 
-    def _do() -> dict:
-        client = genai.Client(api_key=api_key)
+    def _do(key: str) -> dict:
+        client = genai.Client(api_key=key or api_key)
         resp = client.models.generate_content(
             model=model,
             contents=f"{active_prompt()}\nSTREAMER: {streamer}\nTRECHO: {transcrito[:4000]}",
@@ -86,7 +86,7 @@ def call_gemini(transcrito: str, streamer: str, model: str, api_key: str, timeou
         text = getattr(resp, "text", "") or ""
         return parse_gemini_json(text)
 
-    return _net.llm_call(_do)
+    return _net.llm_with_keys(_do, api_key)
 
 
 def score_candidatos(

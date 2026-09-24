@@ -62,9 +62,49 @@ def llm_call(fn: Callable[[], T], tries: int = 2, wait: float = 20.0) -> T:
             return fn()
         except Exception as exc:
             last = exc
-            if not llm_retryable(exc) or i >= tries - 1:
+            if not llm_retryable(exc):
                 raise
             time.sleep(wait)
+    assert last is not None
+    raise last
+
+
+def _is_quota(exc: BaseException) -> bool:
+    s = f"{exc}"
+    return "429" in s or "RESOURCE_EXHAUSTED" in s
+
+
+def llm_keys(first_key: str = "") -> list[str]:
+    """Pool de chaves: principal + GEMINI_API_KEYS (vírgula). Sem duplicar."""
+    import os as _os
+
+    keys = [first_key.strip()] if first_key and first_key.strip() else []
+    for k in _os.environ.get("GEMINI_API_KEYS", "").split(","):
+        k = k.strip()
+        if k and k not in keys:
+            keys.append(k)
+    return keys
+
+
+def llm_with_keys(make_call: Callable[[str], T], first_key: str = "", wait: float = 20.0) -> T:
+    """Roda make_call(key) rotacionando chaves em 429 (quota).
+
+    429/RESOURCE_EXHAUSTED pula p/ próxima chave sem gastar retry;
+    503/transiente dá 1 retry na mesma chave. Não-retryable falha na hora.
+    """
+    keys = llm_keys(first_key) or [""]
+    last: BaseException | None = None
+    for key in keys:
+        for attempt in range(2):
+            try:
+                return make_call(key)
+            except Exception as exc:
+                last = exc
+                if not llm_retryable(exc):
+                    raise
+                if _is_quota(exc):
+                    break  # quota desta chave: tenta a próxima
+                time.sleep(wait)
     assert last is not None
     raise last
 

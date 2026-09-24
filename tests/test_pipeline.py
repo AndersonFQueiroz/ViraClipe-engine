@@ -143,6 +143,22 @@ def test_llm_retry():
         pass
 
 
+def test_llm_rotaciona_em_429(monkeypatch):
+    from factory import net as _net
+
+    seen = []
+
+    def make(key):
+        seen.append(key)
+        if key == "k1":
+            raise RuntimeError("429 RESOURCE_EXHAUSTED quota")
+        return f"ok-{key}"
+
+    monkeypatch.setenv("GEMINI_API_KEYS", "k2")
+    assert _net.llm_with_keys(make, "k1") == "ok-k2"
+    assert seen == ["k1", "k2"]
+
+
 def test_score_final_e_fallback_sem_chave():
     cands = [{"video_id": "v1", "t_inicio": 10.0, "chat": 90.0, "audio": 80.0,
               "streamer": "alguem", "plataforma": "twitch", "url": "https://x"}]
