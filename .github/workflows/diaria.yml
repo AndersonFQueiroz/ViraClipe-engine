@@ -10,6 +10,15 @@ on:
         description: "Data AAAA-MM-DD (vazio = hoje)"
         required: false
         default: ""
+      max_vods:
+        description: "Max VODs no dia"
+        required: false
+        default: "2"
+      publish:
+        description: "Postar no Buffer de verdade?"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,10 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      GEMINI_MODEL: gemini-2.0-flash
+      GEMINI_MODEL: gemini-3.6-flash
       SCORE_THRESHOLD: "75"
       DAILY_CAP: "5"
-      MAX_VODS_DIA: "2"
+      MAX_VODS_DIA: ${{ inputs.max_vods || '2' }}
       SCORE_W_CHAT: ${{ vars.SCORE_W_CHAT }}
       SCORE_W_AUDIO: ${{ vars.SCORE_W_AUDIO }}
       SCORE_W_LLM: ${{ vars.SCORE_W_LLM }}
@@ -40,7 +49,7 @@ jobs:
       TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
       TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      BUFFER_API_KEY: ${{ inputs.publish && secrets.BUFFER_API_KEY || '' }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
     steps:
@@ -59,6 +68,16 @@ jobs:
         run: |
           python -c "from config.secret_loader import mode_label; print('MODE:', mode_label())"
           pytest tests/test_split.py -q
+      - name: Seed + ativa whitelist
+        env:
+          VIRACLIP_ACTIVE: ${{ vars.VIRACLIP_ACTIVE }}
+        run: |
+          python3 -m tools.seed_whitelist --seed
+          for pair in $VIRACLIP_ACTIVE; do
+            h="${pair%%:*}"; p="${pair##*:}"
+            [ -n "$h" ] && [ -n "$p" ] && python3 -m tools.seed_whitelist --activate "$h" "$p" || true
+          done
+          python3 -m tools.seed_whitelist --list
       - name: Run diaria
         run: |
           DAY="${{ inputs.date }}"
