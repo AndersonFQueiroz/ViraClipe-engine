@@ -1,0 +1,4 @@
+# Termos que reprovam o corte no QC (1 por linha, minúsculas).
+# Mantenha curta: slurs, porn explícito, gore, incentivo a violência.
+# Não coloque nomes de streamers aqui (isso vai para denylist no SQLite).
+spoiler vazado endereço pessoal

@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+*.db
+*.mp4
+data/private/
+data/factory/*
+!data/factory/.gitkeep
+data/media/inputs/*
+!data/media/inputs/.gitkeep
+data/media/outputs/*
+!data/media/outputs/.gitkeep
+data/logs/*
+!data/logs/.gitkeep
+__pycache__/
+.pytest_cache/

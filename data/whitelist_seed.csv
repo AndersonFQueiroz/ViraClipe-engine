@@ -1,0 +1,13 @@
+handle,plataforma,url,como_verificar
+alanzoka,twitch,https://www.twitch.tv/alanzoka,"bio + painel: procurar 'cortes liberados/pode clipar'; só ativar após evidência"
+gaules,twitch,https://www.twitch.tv/gaules,"bio + regras de clips; só ativar após evidência"
+casimiro,twitch,https://www.twitch.tv/casimito,"bio + painel clips; só ativar após evidência"
+cellbit,twitch,https://www.twitch.tv/cellbit,"bio + painel clips; só ativar após evidência"
+loud_coringa,twitch,https://www.twitch.tv/loud_coringa,"bio + Discord (canal de cortes?); só ativar após evidência"
+ilhadalendas,twitch,https://www.twitch.tv/ilhadalendas,"bio + painel; conteúdo LoL costuma ter cortes liberados — confirmar"
+cazetv,youtube,https://www.youtube.com/@CazeTV,"descrição do canal + regras de repost; só ativar após evidência"
+nobru,youtube,https://www.youtube.com/@Nobru,"descrição + AP; só ativar após evidência"
+flowpodcast,youtube,https://www.youtube.com/@FlowPodcast,"podcasts costumam liberar cortes com crédito — confirmar descrição"
+podpah,youtube,https://www.youtube.com/@Podpah,"descrição: política de cortes; só ativar após evidência"
+felca,youtube,https://www.youtube.com/@Felca0,"descrição do canal; só ativar após evidência"
+paulinhooloko,kick,https://kick.com/paulinhooloko,"bio + regras; Kick sem API estável — validar yt-dlp antes de ativar"
