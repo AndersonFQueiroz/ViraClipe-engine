@@ -20,7 +20,7 @@ CTA = {
     "tiktok": "Segue pra mais 👇",
     "kwai": "Segue pra mais cortes 👇",
 }
-HANDLE = "@ViraClipe"
+HANDLE = "@viraclipe.oficial"
 
 
 def _live_tags() -> list[str]:

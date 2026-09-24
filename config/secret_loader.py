@@ -90,7 +90,7 @@ PUBLIC_CTA = {
     "tiktok": "Segue pra mais 👇",
     "kwai": "Segue pra mais cortes 👇",
 }
-PUBLIC_HANDLE = "@ViraClipe"
+PUBLIC_HANDLE = "@viraclipe.oficial"
 
 
 def get_tags_base() -> list[str]:

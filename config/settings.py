@@ -29,4 +29,4 @@ MAX_VODS_DIA = env_int("MAX_VODS_DIA", 5)
 GEMINI_MODEL = env("GEMINI_MODEL", "gemini-3.6-flash")
 DB_PATH = Path(env("DB_PATH", "data/viraclipe.db"))
 FACTORY_DATA = Path(env("FACTORY_DATA", "data/factory"))
-HANDLE = "@ViraClipe"
+HANDLE = "@viraclipe.oficial"
