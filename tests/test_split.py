@@ -1,12 +1,30 @@
 """Split público/full: fork roda capado, dono injeta tempero sem commitar."""
 
 import json
+import os
+
+import pytest
 
 from config import secret_loader as SL
 from factory import pack_redes as P
 from factory import qc as Q
 from factory import score as SC
 from factory import signals as SG
+
+_SPLIT_VARS = [k for k in
+               ("VIRACLIP_PROMPT", "VIRACLIP_PROMPT_B64", "VIRACLIP_BLOCKLIST",
+                "VIRACLIP_BLOCKLIST_B64", "VIRACLIP_PACK_JSON", "VIRACLIP_PACK_JSON_B64",
+                "VIRACLIP_TAGS", "VIRACLIP_HANDLE", "VIRACLIP_CTA_YOUTUBE",
+                "VIRACLIP_CTA_INSTAGRAM", "VIRACLIP_CTA_TIKTOK", "VIRACLIP_CTA_KWAI",
+                "SCORE_W_CHAT", "SCORE_W_AUDIO", "SCORE_W_LLM",
+                "SIGNAL_W_CHAT", "SIGNAL_W_AUDIO")]
+
+
+@pytest.fixture(autouse=True)
+def _hermetico(monkeypatch):
+    """Nunca ler tempero real do ambiente (evita falso-falha e vazamento em log)."""
+    for k in _SPLIT_VARS:
+        monkeypatch.delenv(k, raising=False)
 
 
 def test_publico_capado_default(monkeypatch):
