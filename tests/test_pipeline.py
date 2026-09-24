@@ -85,6 +85,12 @@ def test_parse_ebur128():
     assert peaks[0] == (12.3, -18.5)
 
 
+def test_ebur_cmd_somente_audio():
+    from pathlib import Path
+    cmd = SG.ebur_cmd(Path("v.mp4"))
+    assert "-vn" in cmd and "ebur128" in " ".join(cmd)
+
+
 def test_score_final_e_fallback_sem_chave():
     cands = [{"video_id": "v1", "t_inicio": 10.0, "chat": 90.0, "audio": 80.0,
               "streamer": "alguem", "plataforma": "twitch", "url": "https://x"}]

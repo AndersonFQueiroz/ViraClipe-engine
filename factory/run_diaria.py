@@ -49,6 +49,15 @@ def main(argv: list[str]) -> int:
     api_key = _os.environ.get("GEMINI_API_KEY", "")
 
     discovery.main(day, DB_PATH, FACTORY_DATA, MAX_VODS_DIA)
+    import shutil as _sh
+    try:
+        free_gb = _sh.disk_usage(FACTORY_DATA).free / 1e9
+    except Exception:
+        free_gb = 99.0
+    log(f"Disco livre: {free_gb:.1f}GB")
+    if free_gb < 4.0:
+        log("FALHA: disco livre < 4GB — abortando antes do download.")
+        return 1
     prontos = ingest.ingest_day(day, DB_PATH, FACTORY_DATA)
     if not prontos:
         log("Nenhuma VOD pronta — fim.")

@@ -54,13 +54,15 @@ def parse_ebur128(stderr_text: str) -> list[tuple[float, float]]:
     return out
 
 
+def ebur_cmd(mp4: Path) -> list[str]:
+    # -vn/-sn/-dn: só áudio (sem isso, VODs de horas decodificam vídeo à toa).
+    return ["ffmpeg", "-hide_banner", "-i", str(mp4),
+            "-vn", "-sn", "-dn", "-af", "ebur128", "-f", "null", "-"]
+
+
 def ebur128_peaks(mp4: Path, runner=subprocess.run) -> list[tuple[float, float]]:
     try:
-        r = runner(
-            ["ffmpeg", "-hide_banner", "-i", str(mp4),
-             "-af", "ebur128", "-f", "null", "-"],
-            capture_output=True, text=True, timeout=600,
-        )
+        r = runner(ebur_cmd(mp4), capture_output=True, text=True, timeout=900)
         return parse_ebur128((r.stderr or "") + "\n" + (r.stdout or ""))
     except Exception:
         return []
