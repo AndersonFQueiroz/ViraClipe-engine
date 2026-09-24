@@ -1,8 +1,8 @@
-"""Render MVP: título hook + crédito queimados via ffmpeg drawtext.
+"""Render: hook + crédito + marca d'água anti-kiba via ffmpeg drawtext.
 
-Sem libass, sem TTS, sem Ken Burns (Fase 2). Se drawtext falhar
-(sem fonte no Termux), mantém o mp4 do cutter sem quebrar o dia.
-Legendas palavra-a-palavra ficam para Fase 1.1.
+Anti-kiba (padrão dos canais grandes): handle semi-transparente o vídeo
+todo, ALTERNANDO topo/base a cada 6s — crop de um canto só nunca limpa.
+Sem libass, sem TTS (Fase 2). Sem fonte no host, copia sem quebrar o dia.
 """
 from __future__ import annotations
 
@@ -31,6 +31,44 @@ def _font() -> str | None:
     return None
 
 
+def _ff_esc(text: str) -> str:
+    """Escapa texto p/ drawtext (':' separa opções, "'" fecha string)."""
+    return (text or "").replace("\\", "\\\\").replace(":", "\\:").replace("'", "’")
+
+
+def handle_ativo() -> str:
+    try:
+        from config.secret_loader import get_handle
+        return get_handle()
+    except Exception:
+        return "@viraclipe.oficial"
+
+
+def build_overlay_vf(font: str, hook: str, credit: str, handle: str = "") -> str:
+    """Monta o -vf: hook fixo + crédito fixo + marca alternada anti-kiba."""
+    h = _ff_esc(safe_text(hook)[:70])
+    c = _ff_esc(safe_text(credit)[:90])
+    w = _ff_esc(safe_text(handle or handle_ativo())[:30] or "@viraclipe.oficial")
+    base = (
+        f"drawtext=fontfile={font}:text='{h}':fontsize=44:fontcolor=white:"
+        f"borderw=2:bordercolor=black:x=(w-text_w)/2:y=140,"
+        f"drawtext=fontfile={font}:text='{c}':fontsize=26:fontcolor=white:"
+        f"borderw=1:bordercolor=black:x=(w-text_w)/2:y=h-120"
+    )
+    # Marca: 6s no topo, 6s na base, loop. Alpha 0.55: legível, não polui.
+    wm_top = (
+        f"drawtext=fontfile={font}:text='{w}':fontsize=28:"
+        f"fontcolor=white@0.55:borderw=1:bordercolor=black@0.5:"
+        f"x=(w-text_w)/2:y=60:enable='lt(mod(t,12),6)'"
+    )
+    wm_bot = (
+        f"drawtext=fontfile={font}:text='{w}':fontsize=28:"
+        f"fontcolor=white@0.55:borderw=1:bordercolor=black@0.5:"
+        f"x=(w-text_w)/2:y=h-220:enable='gte(mod(t,12),6)'"
+    )
+    return f"{base},{wm_top},{wm_bot}"
+
+
 def render_corte(mp4_in: Path, titulo: str, streamer: str, vod_url: str,
                  out_mp4: Path, runner=subprocess.run) -> bool:
     hook = safe_text(titulo)[:70] or f"Melhor momento de @{streamer}"
@@ -42,12 +80,7 @@ def render_corte(mp4_in: Path, titulo: str, streamer: str, vod_url: str,
             return True
         except Exception:
             return False
-    vf = (
-        f"drawtext=fontfile={font}:text='{hook}':fontsize=44:fontcolor=white:"
-        f"borderw=2:bordercolor=black:x=(w-text_w)/2:y=140,"
-        f"drawtext=fontfile={font}:text='{credit}':fontsize=26:fontcolor=white:"
-        f"borderw=1:bordercolor=black:x=(w-text_w)/2:y=h-120"
-    )
+    vf = build_overlay_vf(font, hook, credit)
     try:
         r = runner(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
