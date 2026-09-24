@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from config.settings import DAILY_CAP, DB_PATH, FACTORY_DATA, MAX_VODS_DIA, SCORE_THRESHOLD
-from factory import cutter, db as _db, discovery, ingest, pack_redes, pack_telegram, post_buffer, qc, render, score, signals
+from factory import cutter, db as _db, discovery, ingest, pack_redes, pack_telegram, post_buffer, qc, render, score, signals, transcribe
 
 T0 = time.time()
 LOCK_NAME = "viraclipe.lock"
@@ -57,7 +57,10 @@ def main(argv: list[str]) -> int:
     log(f"Candidatos: {len(cands)}")
     if not cands:
         return 0
-    sel = score.score_day(day, FACTORY_DATA, model, api_key, float(SCORE_THRESHOLD), int(DAILY_CAP))
+    transc = transcribe.transcribe_day(day, FACTORY_DATA, model, api_key) if api_key else {}
+    log(f"Transcritos: {len(transc)}")
+    sel = score.score_day(day, FACTORY_DATA, model, api_key, float(SCORE_THRESHOLD), int(DAILY_CAP),
+                          transcritos=transc or None)
     log(f"Selecionados (>={SCORE_THRESHOLD}): {len(sel)}")
     if not sel:
         return 0

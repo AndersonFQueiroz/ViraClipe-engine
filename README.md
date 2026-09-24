@@ -96,9 +96,10 @@ ViraClipe/
 ├── factory/
 │   ├── run_diaria.py          # Orquestrador diário (flock + cron)
 │   ├── cron_diario.sh         # Gatilho diário (janela 03h-05h no S20 FE)
-│   ├── discovery.py           # VODs novas da whitelist → vods.json
+│   ├── discovery.py           # Helix Twitch + YT playlistItems → vods.json
 │   ├── ingest.py              # yt-dlp 720p + chat replay → ingest.json
 │   ├── signals.py             # chat + áudio → candidatos.json (zero API)
+│   ├── transcribe.py          # mp3 do snippet → transcritos.json (Gemini áudio)
 │   ├── score.py               # Gemini Flash → scored.json (top 5)
 │   ├── cutter.py              # corte 9:16 → cortes.json
 │   ├── render.py              # hook + crédito → finais.json
