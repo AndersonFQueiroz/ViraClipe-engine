@@ -89,6 +89,15 @@ def call_gemini(transcrito: str, streamer: str, model: str, api_key: str, timeou
     return _net.llm_with_keys(_do, api_key)
 
 
+def _gemini_topn() -> int:
+    import os as _os
+
+    try:
+        return max(1, int(_os.environ.get("SCORE_GEMINI_TOPN", "8")))
+    except ValueError:
+        return 8
+
+
 def score_candidatos(
     candidatos: list[dict],
     transcritos: dict[str, str] | None = None,
@@ -101,9 +110,14 @@ def score_candidatos(
 ) -> list[dict]:
     transcritos = transcritos or {}
     fn = gemini_fn or (call_gemini if api_key else None)
+    # Só os top-N por combinado vão ao Gemini (economia de quota free).
+    # Auditoria (scored_full) continua com todos.
+    pool = sorted(candidatos, key=lambda c: float(c.get("combinado", 0)), reverse=True)
+    if fn is not None and gemini_fn is None and api_key:
+        pool = pool[:_gemini_topn()]
     scored: list[dict] = []
     _logged_err = False
-    for i, c in enumerate(candidatos):
+    for i, c in enumerate(pool):
         key = f"{c.get('video_id')}:{c.get('t_inicio')}"
         texto = transcritos.get(key, "")
         viral = None
@@ -138,6 +152,22 @@ def score_candidatos(
             **c, "cut_id": f"{c.get('video_id')}-{float(c.get('t_inicio', 0)):.0f}",
             "viral": viral, "score_final": final, "titulo": titulo,
             "descricao": descricao, "hashtags": hashtags, "motivo": motivo,
+            "renorm": chat is None,
+        })
+    # Restante fora do pool Gemini: score local puro (sem custo) p/ auditoria.
+    pool_ids = {id(c) for c in pool}
+    for c in candidatos:
+        if id(c) in pool_ids:
+            continue
+        streamer = str(c.get("streamer") or "")
+        chat = c.get("chat", 50)
+        chat_f = None if chat is None else float(chat)
+        final = score_final(chat_f, float(c.get("audio", 50)), None)
+        scored.append({
+            **c, "cut_id": f"{c.get('video_id')}-{float(c.get('t_inicio', 0)):.0f}",
+            "viral": None, "score_final": final, "titulo": fallback_title(streamer),
+            "descricao": f"Créditos: @{streamer}" + (f" — {c.get('url')}" if c.get("url") else ""),
+            "hashtags": [], "motivo": "fora do pool Gemini (quota)",
             "renorm": chat is None,
         })
     scored.sort(key=lambda s: s["score_final"], reverse=True)

@@ -16,7 +16,7 @@ PROMPT_TRANSCRIBE = (
     "sem comentários nem formatação. Se não houver fala, retorne OUVIDO_VAZIO."
 )
 
-MAX_SNIPPETS = 6
+MAX_SNIPPETS = 4
 
 
 def extract_snippet_audio(mp4: Path, t_inicio: float, duracao: float,
