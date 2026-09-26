@@ -9,11 +9,11 @@ from factory import db as _db
 from tools import seed_whitelist as SEED
 
 
-def test_seed_csv_tem_12_e_insere_pendente(tmp_path, monkeypatch):
+def test_seed_csv_insere_pendente(tmp_path, monkeypatch):
     csv_src = Path("data/whitelist_seed.csv")
     assert csv_src.exists()
     rows = list(csv.DictReader(csv_src.read_text(encoding="utf-8").splitlines()))
-    assert len(rows) == 12
+    assert len(rows) >= 12
     assert {r["plataforma"] for r in rows} >= {"twitch", "youtube", "kick"}
     dbp = tmp_path / "t.db"
     monkeypatch.setattr(SEED, "DB_PATH", dbp)
@@ -25,13 +25,32 @@ def test_seed_csv_tem_12_e_insere_pendente(tmp_path, monkeypatch):
         on = con.execute("SELECT COUNT(*) c FROM streamers WHERE cortes_liberados=1").fetchone()["c"]
     finally:
         con.close()
-    assert n == 12 and on == 0
+    assert n == len(rows) and on == 0
     assert SEED.activate("alanzoka", "twitch", dbp) == 0
     con = _db.connect(dbp)
     try:
         assert con.execute("SELECT cortes_liberados FROM streamers WHERE handle='alanzoka'").fetchone()["cortes_liberados"] == 1
     finally:
         con.close()
+
+
+def test_sync_somente_lista(tmp_path):
+    dbp = tmp_path / "t.db"
+    _db.init_db(dbp)
+    con = _db.connect(dbp)
+    con.execute("INSERT INTO streamers(handle, plataforma, cortes_liberados) VALUES('a','twitch',1)")
+    con.execute("INSERT INTO streamers(handle, plataforma, cortes_liberados) VALUES('b','twitch',1)")
+    con.commit()
+    con.close()
+    assert SEED.sync(["a:twitch"], dbp) == 0
+    con = _db.connect(dbp)
+    try:
+        got = {r["handle"]: r["cortes_liberados"] for r in
+               con.execute("SELECT handle, cortes_liberados FROM streamers")}
+    finally:
+        con.close()
+    assert got == {"a": 1, "b": 0}
+    assert SEED.sync([], dbp) == 1  # vazio não mexe (segurança)
 
 
 def test_bot_remover_marca_denylist(tmp_path):

@@ -80,10 +80,8 @@ jobs:
           VIRACLIP_ACTIVE: ${{ vars.VIRACLIP_ACTIVE }}
         run: |
           python3 -m tools.seed_whitelist --seed
-          for pair in $VIRACLIP_ACTIVE; do
-            h="${pair%%:*}"; p="${pair##*:}"
-            [ -n "$h" ] && [ -n "$p" ] && python3 -m tools.seed_whitelist --activate "$h" "$p" || true
-          done
+          # shellcheck disable=SC2086
+          python3 -m tools.seed_whitelist --sync $VIRACLIP_ACTIVE || true
           python3 -m tools.seed_whitelist --list
       - name: Run diaria
         run: |

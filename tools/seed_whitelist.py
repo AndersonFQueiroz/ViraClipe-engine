@@ -74,7 +74,50 @@ def list_all(db_path: Path = DB_PATH) -> int:
     return 0
 
 
+def sync(pairs: list[str], db_path: Path = DB_PATH) -> int:
+    """Ativa SÓ os pares 'handle:plataforma' e desativa o resto.
+
+    Foco de rotação por rodada (VIRACLIP_ACTIVE). Denylist nunca é mexida.
+    """
+    _db.init_db(db_path)
+    keep = set()
+    for p in pairs:
+        if ":" in p:
+            h, plat = p.split(":", 1)
+            if h.strip() and plat.strip():
+                keep.add((h.strip(), plat.strip()))
+    if not keep:
+        print("sync vazio — nada alterado (segurança).")
+        return 1
+    con = _db.connect(db_path)
+    try:
+        for h, plat in keep:
+            row = con.execute("SELECT denylist FROM streamers WHERE handle=? AND plataforma=?",
+                              (h, plat)).fetchone()
+            if row and row["denylist"]:
+                print(f"{h}/{plat} está na DENYLIST — mantido fora.")
+                continue
+            con.execute(
+                "INSERT INTO streamers(handle, plataforma, cortes_liberados, denylist) VALUES(?,?,1,0)"
+                " ON CONFLICT(handle, plataforma) DO UPDATE SET cortes_liberados=1",
+                (h, plat),
+            )
+        cur = con.execute("SELECT handle, plataforma FROM streamers WHERE denylist=0").fetchall()
+        for r in cur:
+            if (r["handle"], r["plataforma"]) not in keep:
+                con.execute("UPDATE streamers SET cortes_liberados=0 WHERE handle=? AND plataforma=?",
+                            (r["handle"], r["plataforma"]))
+        con.commit()
+    finally:
+        con.close()
+    print(f"Sync: {len(keep)} ativo(s): {sorted(f'{h}/{p}' for h, p in keep)}")
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if "--sync" in argv:
+        i = argv.index("--sync")
+        return sync(argv[i + 1:])
     if "--activate" in argv:
         i = argv.index("--activate")
         return activate(argv[i + 1], argv[i + 2])

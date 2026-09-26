@@ -25,9 +25,9 @@ def vod_paths(day_dir: Path, video_id: str) -> tuple[Path, Path]:
     return raw / f"{safe}.mp4", raw / f"{safe}.chat.json"
 
 
-def _try_format(url: str, out_mp4: Path, fmt: str, runner) -> tuple[bool, str]:
-    cmd = ["yt-dlp", "-f", fmt, "--no-playlist",
-           "--no-warnings", "-o", str(out_mp4), url]
+def _try_format(url: str, out_mp4: Path, fmt: str, runner, extra: list[str] | None = None) -> tuple[bool, str]:
+    cmd = (["yt-dlp", "-f", fmt, "--no-playlist", "--no-warnings"]
+           + (extra or []) + ["-o", str(out_mp4), url])
     try:
         r = runner(cmd, capture_output=True, text=True, timeout=3600)
         ok = r.returncode == 0 and out_mp4.exists() and out_mp4.stat().st_size > 100_000
@@ -37,14 +37,23 @@ def _try_format(url: str, out_mp4: Path, fmt: str, runner) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"[:300]
 
 
+ANDROID_ARGS = ["--extractor-args", "youtube:player_client=android"]
+
+
 def download_vod(url: str, out_mp4: Path, runner=subprocess.run) -> bool:
-    ok, err = _try_format(url, out_mp4, YDL_FORMAT, runner)
-    if not ok:
-        print(f"ingest: 720p falhou ({err.strip()[:200]}) — tentando 480p")
-        ok, err = _try_format(url, out_mp4, YDL_FORMAT_LOW, runner)
-    if not ok:
-        print(f"ingest: download falhou ({err.strip()[:200]})")
-    return ok
+    tentativas = [
+        ("720p", YDL_FORMAT, []),
+        ("720p-android", YDL_FORMAT, ANDROID_ARGS),
+        ("480p-android", YDL_FORMAT_LOW, ANDROID_ARGS),
+    ]
+    err = ""
+    for nome, fmt, extra in tentativas:
+        ok, err = _try_format(url, out_mp4, fmt, runner, extra)
+        if ok:
+            return True
+        print(f"ingest: {nome} falhou ({err.strip()[:160]})")
+    print(f"ingest: download falhou ({err.strip()[:200]})")
+    return False
 
 
 def download_chat(url: str, out_chat: Path) -> bool:
