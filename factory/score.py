@@ -101,7 +101,7 @@ def _gemini_topn() -> int:
 def score_candidatos(
     candidatos: list[dict],
     transcritos: dict[str, str] | None = None,
-    model: str = "gemini-3.6-flash",
+    model: str = "gemini-3.5-flash-lite",
     api_key: str = "",
     threshold: float = 75.0,
     daily_cap: int = 5,
@@ -180,7 +180,7 @@ def score_candidatos(
 
 
 def score_day(
-    day: str, factory_data: Path, model: str = "gemini-3.6-flash",
+    day: str, factory_data: Path, model: str = "gemini-3.5-flash-lite",
     api_key: str = "", threshold: float = 75.0, daily_cap: int = 5,
     gemini_fn=None, transcritos: dict[str, str] | None = None,
 ) -> list[dict]:

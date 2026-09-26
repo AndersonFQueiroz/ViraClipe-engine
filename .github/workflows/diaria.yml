@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 90
     env:
       GEMINI_MODEL: gemini-3.6-flash
+      SCORE_MODEL: gemini-3.5-flash-lite
       SCORE_THRESHOLD: "75"
       DAILY_CAP: "5"
       MAX_VODS_DIA: ${{ inputs.max_vods || '2' }}

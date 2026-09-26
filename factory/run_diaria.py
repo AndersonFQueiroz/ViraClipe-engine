@@ -45,7 +45,8 @@ def main(argv: list[str]) -> int:
         return 2
     log(f"ViraClipe — {day}")
     import os as _os
-    model = _os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+    model = _os.environ.get("GEMINI_MODEL", "") or "gemini-3.6-flash"
+    score_model = _os.environ.get("SCORE_MODEL", "") or "gemini-3.5-flash-lite"
     api_key = _os.environ.get("GEMINI_API_KEY", "")
 
     discovery.main(day, DB_PATH, FACTORY_DATA, MAX_VODS_DIA)
@@ -68,7 +69,7 @@ def main(argv: list[str]) -> int:
         return 0
     transc = transcribe.transcribe_day(day, FACTORY_DATA, model, api_key) if api_key else {}
     log(f"Transcritos: {len(transc)}")
-    sel = score.score_day(day, FACTORY_DATA, model, api_key, float(SCORE_THRESHOLD), int(DAILY_CAP),
+    sel = score.score_day(day, FACTORY_DATA, score_model, api_key, float(SCORE_THRESHOLD), int(DAILY_CAP),
                           transcritos=transc or None)
     log(f"Selecionados (>={SCORE_THRESHOLD}): {len(sel)}")
     if not sel:
