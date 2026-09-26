@@ -14,6 +14,7 @@ from pathlib import Path
 from . import db as _db
 
 YDL_FORMAT = "bv*[height<=720]+ba/b[height<=720]/b"
+YDL_FORMAT_LOW = "bv*[height<=480]+ba/b[height<=480]/b"
 CHAT_TIMEOUT = 240
 
 
@@ -24,16 +25,26 @@ def vod_paths(day_dir: Path, video_id: str) -> tuple[Path, Path]:
     return raw / f"{safe}.mp4", raw / f"{safe}.chat.json"
 
 
-def download_vod(url: str, out_mp4: Path, runner=subprocess.run) -> bool:
-    cmd = [
-        "yt-dlp", "-f", YDL_FORMAT, "--no-playlist",
-        "--no-warnings", "-o", str(out_mp4), url,
-    ]
+def _try_format(url: str, out_mp4: Path, fmt: str, runner) -> tuple[bool, str]:
+    cmd = ["yt-dlp", "-f", fmt, "--no-playlist",
+           "--no-warnings", "-o", str(out_mp4), url]
     try:
         r = runner(cmd, capture_output=True, text=True, timeout=3600)
-        return r.returncode == 0 and out_mp4.exists() and out_mp4.stat().st_size > 100_000
-    except Exception:
-        return False
+        ok = r.returncode == 0 and out_mp4.exists() and out_mp4.stat().st_size > 100_000
+        err = "" if ok else (getattr(r, "stderr", "") or "")[-300:]
+        return ok, err
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"[:300]
+
+
+def download_vod(url: str, out_mp4: Path, runner=subprocess.run) -> bool:
+    ok, err = _try_format(url, out_mp4, YDL_FORMAT, runner)
+    if not ok:
+        print(f"ingest: 720p falhou ({err.strip()[:200]}) — tentando 480p")
+        ok, err = _try_format(url, out_mp4, YDL_FORMAT_LOW, runner)
+    if not ok:
+        print(f"ingest: download falhou ({err.strip()[:200]})")
+    return ok
 
 
 def download_chat(url: str, out_chat: Path) -> bool:
