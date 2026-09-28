@@ -3,6 +3,7 @@
 !.env.example
 *.db
 *.mp4
+data/pesos_aprendidos.json
 data/private/
 data/factory/*
 !data/factory/.gitkeep

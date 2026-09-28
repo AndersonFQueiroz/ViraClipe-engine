@@ -53,18 +53,43 @@ def env_float(name: str, default: float) -> float:
 
 
 # Pesos afináveis — fork usa default mediano, dono afina via env.
+# Feedback loop: tools/feedback.py escreve data/pesos_aprendidos.json a partir
+# das views reais; arquivo vale como default, env explícito vence sempre.
+# (Arquivo é local/gitignored — nunca vai ao mirror.)
+def _learned() -> dict:
+    from pathlib import Path as _P
+
+    p = _P(os.environ.get("PESOS_LEARNED_FILE", "data/pesos_aprendidos.json"))
+    try:
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _w(name: str, default: float) -> float:
+    if name in os.environ:
+        return env_float(name, default)
+    try:
+        return float(_learned().get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 def score_weights() -> tuple[float, float, float]:
     return (
-        env_float("SCORE_W_CHAT", 0.5),
-        env_float("SCORE_W_AUDIO", 0.2),
-        env_float("SCORE_W_LLM", 0.3),
+        _w("SCORE_W_CHAT", 0.5),
+        _w("SCORE_W_AUDIO", 0.2),
+        _w("SCORE_W_LLM", 0.3),
     )
 
 
 def signal_weights() -> tuple[float, float]:
     return (
-        env_float("SIGNAL_W_CHAT", 0.7),
-        env_float("SIGNAL_W_AUDIO", 0.3),
+        _w("SIGNAL_W_CHAT", 0.7),
+        _w("SIGNAL_W_AUDIO", 0.3),
     )
 
 

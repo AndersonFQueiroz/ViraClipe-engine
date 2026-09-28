@@ -40,6 +40,21 @@ CREATE TABLE IF NOT EXISTS posts(
   agendado_para TEXT NOT NULL DEFAULT '',
   PRIMARY KEY(cut_id, rede)
 );
+CREATE TABLE IF NOT EXISTS feedback_views(
+  cut_id TEXT NOT NULL,
+  rede TEXT NOT NULL,
+  video_id TEXT NOT NULL DEFAULT '',
+  views INTEGER NOT NULL DEFAULT 0,
+  likes INTEGER NOT NULL DEFAULT 0,
+  coletado_em TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(cut_id, rede)
+);
+CREATE TABLE IF NOT EXISTS pesos_learned(
+  chave TEXT PRIMARY KEY,
+  valor REAL NOT NULL,
+  amostras INTEGER NOT NULL DEFAULT 0,
+  atualizado_em TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS clips_vistos(
   clip_id TEXT PRIMARY KEY,
   streamer TEXT NOT NULL,
@@ -63,6 +78,13 @@ def init_db(db_path: Path) -> None:
     con = connect(db_path)
     try:
         con.executescript(SCHEMA)
+        # Migração leve: colunas da fonte B em bancos antigos (ignora se já há).
+        for ddl in ("ALTER TABLE cortes ADD COLUMN voz REAL NOT NULL DEFAULT 50",
+                    "ALTER TABLE cortes ADD COLUMN rubrica TEXT NOT NULL DEFAULT ''"):
+            try:
+                con.execute(ddl)
+            except Exception:
+                pass
         con.commit()
     finally:
         con.close()

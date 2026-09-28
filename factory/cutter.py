@@ -73,15 +73,24 @@ def cutter_day(day: str, factory_data: Path, db_path: Path, runner=subprocess.ru
                     continue
             _chat = s.get("chat", 0)
             _chat = 0.0 if _chat is None else float(_chat)
+            try:
+                import json as _json
+                _rub = _json.dumps(s.get("rubrica") or {}, ensure_ascii=False)[:300]
+            except Exception:
+                _rub = ""
+            try:
+                _voz = float(s.get("voz", 50))
+            except (TypeError, ValueError):
+                _voz = 50.0
             con.execute(
                 "INSERT OR REPLACE INTO cortes(cut_id, video_id, streamer, t_inicio, duracao,"
-                " chat, audio, viral, score_final, titulo, status)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                " chat, audio, viral, score_final, titulo, status, voz, rubrica)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (cut_id, vid, str(s.get("streamer") or ""),
                  float(s.get("t_inicio", 0)), float(s.get("duracao", 30)),
                  _chat, float(s.get("audio", 0)),
                  s.get("viral"), float(s.get("score_final", 0)),
-                 str(s.get("titulo") or ""), "cut"),
+                 str(s.get("titulo") or ""), "cut", _voz, _rub),
             )
             cortes.append({**s, "cut_id": cut_id, "mp4": str(out)})
         con.commit()
