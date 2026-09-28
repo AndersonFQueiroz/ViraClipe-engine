@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS posts(
   agendado_para TEXT NOT NULL DEFAULT '',
   PRIMARY KEY(cut_id, rede)
 );
+CREATE TABLE IF NOT EXISTS clips_vistos(
+  clip_id TEXT PRIMARY KEY,
+  streamer TEXT NOT NULL,
+  vod_id TEXT NOT NULL DEFAULT '',
+  vod_offset REAL NOT NULL DEFAULT -1,
+  views INTEGER NOT NULL DEFAULT 0,
+  titulo TEXT NOT NULL DEFAULT '',
+  visto_em TEXT NOT NULL DEFAULT ''
+);
 """
 
 
