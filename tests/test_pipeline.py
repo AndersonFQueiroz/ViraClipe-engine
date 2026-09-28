@@ -159,6 +159,60 @@ def test_llm_rotaciona_em_429(monkeypatch):
     assert seen == ["k1", "k2"]
 
 
+def test_fill_up_completa_ate_cap_com_floor(monkeypatch):
+    monkeypatch.setenv("POST_FLOOR", "55")
+    cands = [
+        {"video_id": "v", "t_inicio": 10.0, "chat": 90.0, "audio": 80.0,
+         "streamer": "s", "plataforma": "twitch", "url": "https://x"},
+        {"video_id": "v", "t_inicio": 40.0, "chat": 60.0, "audio": 60.0,
+         "streamer": "s", "plataforma": "twitch", "url": "https://x"},
+    ]
+    # 76 passa; 0.5*60+0.2*60+0.3*50=57 >= floor 55 -> fill
+    out = SC.score_candidatos(cands, api_key="", threshold=75.0, daily_cap=2)
+    assert [s["cut_id"] for s in out] == ["v-10", "v-40"]
+    assert out[1].get("fill") is True
+
+
+def test_fill_respeita_floor(monkeypatch):
+    monkeypatch.setenv("POST_FLOOR", "70")
+    cands = [{"video_id": "v", "t_inicio": 40.0, "chat": 60.0, "audio": 60.0,
+              "streamer": "s", "plataforma": "twitch", "url": "https://x"}]
+    out = SC.score_candidatos(cands, api_key="", threshold=75.0, daily_cap=2)
+    assert out == []
+
+
+def test_cookies_decode(tmp_path, monkeypatch):
+    from factory import ingest as I2
+
+    blob = "# Netscape\n.youtube.com\tTRUE\t/\tTRUE\t1\tsess\tabc"
+    import base64
+    monkeypatch.setenv("YTDLP_COOKIES_B64", base64.b64encode(blob.encode()).decode())
+    p = I2._cookies_file(tmp_path)
+    assert p and p.exists()
+    assert I2.has_yt_cookies() is True
+    monkeypatch.delenv("YTDLP_COOKIES_B64")
+    assert I2.has_yt_cookies() is False
+
+
+def test_discovery_prioriza_twitch_sem_cookies(tmp_path, monkeypatch):
+    from factory import discovery as D2
+    from factory import db as _db2
+
+    monkeypatch.delenv("YTDLP_COOKIES_B64", raising=False)
+    dbp = tmp_path / "t.db"
+    _db2.init_db(dbp)
+    con = _db2.connect(dbp)
+    con.execute("INSERT INTO streamers(handle, plataforma, cortes_liberados) VALUES('a','twitch',1)")
+    con.execute("INSERT INTO streamers(handle, plataforma, cortes_liberados) VALUES('b','youtube',1)")
+    con.commit()
+    con.close()
+    out = D2.discover("2026-09-27", dbp, tmp_path / "f", max_vods_dia=2, fetchers={
+        "twitch": lambda h: [{"video_id": "t1", "viewers": 10, "plataforma": "twitch"}],
+        "youtube": lambda h: [{"video_id": "y1", "viewers": 99999, "plataforma": "youtube"}],
+    })
+    assert [v["video_id"] for v in out] == ["t1", "y1"]
+
+
 def test_score_final_e_fallback_sem_chave():
     cands = [{"video_id": "v1", "t_inicio": 10.0, "chat": 90.0, "audio": 80.0,
               "streamer": "alguem", "plataforma": "twitch", "url": "https://x"}]

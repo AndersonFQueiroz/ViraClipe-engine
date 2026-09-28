@@ -230,7 +230,17 @@ def discover(
         except Exception:
             continue
 
-    novos = filter_new_vods(vods, processed, max_vods_dia)
+    # Sem cookies, YouTube não baixa (bot-check): Twitch/Kick primeiro.
+    # Estável (mantém ordem de viewers dentro do grupo). Limite DEPOIS.
+    try:
+        from .ingest import has_yt_cookies
+        yt_ok = has_yt_cookies()
+    except Exception:
+        yt_ok = bool(os.environ.get("YTDLP_COOKIES_B64", "").strip())
+    novos = filter_new_vods(vods, processed, 10 ** 6)
+    if not yt_ok:
+        novos.sort(key=lambda v: 1 if v.get("plataforma") == "youtube" else 0)
+    novos = novos[:max(0, max_vods_dia)]
     day_dir = factory_data / day
     day_dir.mkdir(parents=True, exist_ok=True)
     (day_dir / "vods.json").write_text(

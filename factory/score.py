@@ -176,7 +176,24 @@ def score_candidatos(
             audit_path.write_text(json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
         except Exception:
             pass
-    return [s for s in scored if s["score_final"] >= threshold][:daily_cap]
+    import os as _os2
+
+    try:
+        floor = float(_os2.environ.get("POST_FLOOR", "55"))
+    except ValueError:
+        floor = 50.0
+    picks = [s for s in scored if s["score_final"] >= threshold][:daily_cap]
+    if len(picks) < daily_cap:
+        # Fill-up: completa até o cap com os próximos, desde que >= floor.
+        # QC (specs/blocklist/dedup) continua valendo p/ todos.
+        chosen = {s["cut_id"] for s in picks}
+        for s in scored:
+            if len(picks) >= daily_cap:
+                break
+            if s["cut_id"] not in chosen and s["score_final"] >= floor:
+                picks.append({**s, "fill": True})
+                chosen.add(s["cut_id"])
+    return picks
 
 
 def score_day(

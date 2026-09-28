@@ -25,6 +25,35 @@ def vod_paths(day_dir: Path, video_id: str) -> tuple[Path, Path]:
     return raw / f"{safe}.mp4", raw / f"{safe}.chat.json"
 
 
+def _cookies_file(day_dir: Path) -> Path | None:
+    """Decodifica YTDLP_COOKIES_B64 (Netscape cookies.txt do youtube.com)."""
+    import base64 as _b64
+    import os as _os
+
+    raw = (_os.environ.get("YTDLP_COOKIES_B64", "") or "").strip()
+    if not raw:
+        return None
+    try:
+        blob = _b64.b64decode(raw).decode("utf-8", "replace")
+    except Exception:
+        return None
+    if "youtube.com" not in blob:
+        print("ingest: cookies sem youtube.com — ignorados")
+        return None
+    p = day_dir / "cookies.txt"
+    try:
+        p.write_text(blob, encoding="utf-8")
+        return p
+    except Exception:
+        return None
+
+
+def has_yt_cookies() -> bool:
+    import os as _os
+
+    return bool((_os.environ.get("YTDLP_COOKIES_B64", "") or "").strip())
+
+
 def _try_format(url: str, out_mp4: Path, fmt: str, runner, extra: list[str] | None = None) -> tuple[bool, str]:
     cmd = (["yt-dlp", "-f", fmt, "--no-playlist", "--no-warnings"]
            + (extra or []) + ["-o", str(out_mp4), url])
@@ -40,8 +69,13 @@ def _try_format(url: str, out_mp4: Path, fmt: str, runner, extra: list[str] | No
 ANDROID_ARGS = ["--extractor-args", "youtube:player_client=android"]
 
 
-def download_vod(url: str, out_mp4: Path, runner=subprocess.run) -> bool:
-    tentativas = [
+def download_vod(url: str, out_mp4: Path, runner=subprocess.run, cookies: Path | None = None) -> bool:
+    is_yt = "youtube.com" in url or "youtu.be" in url
+    ck_args = ["--cookies", str(cookies)] if (cookies and cookies.exists()) else []
+    tentativas = []
+    if is_yt and ck_args:
+        tentativas.append(("720p-cookies", YDL_FORMAT, ck_args))
+    tentativas += [
         ("720p", YDL_FORMAT, []),
         ("720p-android", YDL_FORMAT, ANDROID_ARGS),
         ("480p-android", YDL_FORMAT_LOW, ANDROID_ARGS),
@@ -120,7 +154,11 @@ def ingest_day(
     if not vods_path.exists():
         return []
     vods = json.loads(vods_path.read_text(encoding="utf-8"))
-    downloader = downloader or download_vod
+    if downloader is None:
+        ck = _cookies_file(day_dir)
+        if ck:
+            print("ingest: cookies YouTube ativos")
+        downloader = lambda url, mp4, _ck=ck: download_vod(url, mp4, cookies=_ck)
     chat_dl = chat_downloader or download_chat
     prontos: list[dict] = []
     for v in vods:
