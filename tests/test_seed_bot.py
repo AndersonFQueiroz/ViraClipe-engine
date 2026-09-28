@@ -86,11 +86,11 @@ def test_fila_text_conta_arquivos(tmp_path):
     assert "vods.json: 1" in txt and "buffer.json: --" in txt
 
 
-def test_cron_script_existe_e_aponta_run_diaria():
+def test_cron_script_existe_e_aponta_dia():
     p = Path("factory/cron_diario.sh")
     assert p.exists()
     txt = p.read_text(encoding="utf-8")
-    assert "factory.run_diaria" in txt
+    assert "tools/dia.py" in txt  # A auto-posta, B pede botão
     assert "data/logs/cron-" in txt
     import os
     assert os.access(p, os.X_OK)

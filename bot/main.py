@@ -162,7 +162,42 @@ def run() -> int:
             _ap.rejeitar(DB_PATH, cid)
             await q.edit_message_caption(caption=f"❌ descartado {cid} (nunca posta).")
 
+    async def _daily(ctx: ContextTypes.DEFAULT_TYPE):
+        """Cron interno 08h BRT: roda tools/dia.py num thread e avisa o dono."""
+        import subprocess as _sp
+        import threading as _th
+
+        import requests as _rq
+
+        def _run():
+            try:
+                r = _sp.run(["python3", "tools/dia.py", "--max", "2"],
+                            capture_output=True, text=True, timeout=7200)
+                tail = (r.stdout or "")[-1200:]
+                status = "ok" if r.returncode == 0 else f"exit {r.returncode}"
+            except Exception as exc:
+                tail, status = f"{type(exc).__name__}: {exc}"[:300], "falha"
+            try:
+                _rq.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                         json={"chat_id": owner,
+                               "text": f"⏰ dia automático: {status}\n{tail[-1000:]}"},
+                         timeout=30)
+            except Exception:
+                pass
+
+        _th.Thread(target=_run, daemon=True).start()
+        await ctx.bot.send_message(chat_id=owner, text="⏰ dia automático iniciado.")
+
     app = Application.builder().token(token).build()
+    if os.environ.get("VIRACLIP_DAILY", "") == "1" and owner:
+        try:
+            from datetime import time as _time
+            from zoneinfo import ZoneInfo as _ZI
+            app.job_queue.run_daily(_daily, time=_time(8, 0, tzinfo=_ZI("America/Sao_Paulo")),
+                                    name="viraclipe-dia")
+            print("Cron interno ativo: dia.py todo dia 08h BRT.")
+        except Exception as exc:
+            print(f"cron interno off ({type(exc).__name__})")
     app.add_handler(CommandHandler("start", _start))
     app.add_handler(CommandHandler("status", _status))
     app.add_handler(CommandHandler("fila", _fila))

@@ -1,8 +1,10 @@
 name: ViraClipe Diaria (split publico/full)
 
 # PÚBLICO-SAFE: só main + schedule leem Secrets. PR de fork NUNCA recebe secret.
-# CRON DESATIVADO em 28/09: repensando o pipeline de cortes (qualidade > volume).
-# Reativar adicionando bloco schedule abaixo. Manual via workflow_dispatch segue ok.
+# SEM schedule de propósito: o cron oficial roda LOCAL (cron_diario.sh ->
+# tools/dia.py), onde bot+banco+arquivos estão juntos (botão de aprovar só
+# funciona lá). Actions = backup manual (workflow_dispatch) com MESMO script.
+# Rodar nos dois lugares dessincroniza o banco (repetidos!).
 on:
   workflow_dispatch:
     inputs:
@@ -87,7 +89,7 @@ jobs:
         run: |
           DAY="${{ inputs.date }}"
           if [ -z "$DAY" ]; then DAY=$(date +%F); fi
-          python3 -m factory.run_diaria --date "$DAY" >> "data/logs/cron-$DAY.log" 2>&1 || echo "exit=$?"
+          python3 tools/dia.py --date "$DAY" --max 2 >> "data/logs/cron-$DAY.log" 2>&1 || echo "exit=$?"
       - name: Upload logs/pack (1 dia)
         if: always()
         uses: actions/upload-artifact@v4
