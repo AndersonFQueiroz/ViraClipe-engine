@@ -42,15 +42,24 @@ def main(argv: list[str]) -> int:
     url, t_ini, dur = argv[1], float(argv[2]), float(argv[3])
     work = Path(tempfile.mkdtemp(prefix="reframe-check-"))
     src = work / "src.mp4"
-    print(f"baixando 90s de {url} @ {t_ini}s ...")
+    print(f"baixando 95s de {url} @ {t_ini}s ...")
+    g = subprocess.run(
+        ["yt-dlp", "-g", "-f", "bv*[height<=720]+ba/b[height<=720]/b",
+         "--no-playlist", "--no-warnings", url],
+        capture_output=True, text=True, timeout=300,
+    )
+    stream = (g.stdout or "").strip().splitlines()
+    if g.returncode != 0 or not stream:
+        print(f"yt-dlp -g falhou: {(g.stderr or '')[-300:]}")
+        return 1
     dl = subprocess.run(
-        ["yt-dlp", "-f", "bv*[height<=720]+ba/b[height<=720]/b", "--no-playlist",
-         "--no-warnings", "--download-sections", f"*{t_ini:.0f}-{t_ini + 95:.0f}",
-         "--force-keyframes-at-cuts", "-o", str(src), url],
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-ss", f"{t_ini:.0f}", "-t", "95",
+         "-i", stream[0], "-c", "copy", str(src)],
         capture_output=True, text=True, timeout=600,
     )
     if dl.returncode != 0 or not src.exists() or src.stat().st_size < 100_000:
-        print("download da seção falhou")
+        print(f"ffmpeg seek falhou: {(dl.stderr or '')[-300:]}")
         return 1
     box = _rf.find_face_box(src, 5.0, min(dur, 60.0))
     layout = "split" if box else "centro"
