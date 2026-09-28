@@ -144,6 +144,29 @@ def test_definir_titulo_usa_base_ia(tmp_path):
     assert "@s" in pack["captions"]["c1"]
 
 
+def test_definir_titulo_vod_regen_descricao(tmp_path, monkeypatch):
+    import factory.score as _S
+    monkeypatch.setattr(_S, "legendar_clip",
+                        lambda *a, **k: {"titulo": "T", "descricao": "@s susto",
+                                         "hashtags": ["h"], "viral_clip": 70,
+                                         "motivo": "m"})
+    dbp, fac = _setup(tmp_path)
+    day_dir = fac / "2026-09-28"
+    (day_dir / "real.mp4").write_bytes(b"x" * 200_000)
+    for name in ("scored.json", "finais.json"):
+        (day_dir / name).write_text(
+            __import__("json").dumps([{"cut_id": "twitch:9-100", "streamer": "s",
+                                       "titulo": "velho", "descricao": "d",
+                                       "duracao": 30, "hashtags": [],
+                                       "mp4": str(day_dir / "real.mp4")}]), encoding="utf-8")
+    (day_dir / "pack.json").write_text(
+        __import__("json").dumps({
+            "videos": {"c1": "v1"}, "captions": {}, "captions_tt": {},
+            "creditos": {"c1": {"cut_id": "twitch:9-100"}}}), encoding="utf-8")
+    res = A.definir_titulo(fac, dbp, "twitch:9-100", "susto brabo")
+    assert res["ok"] and res["descricao"] == "@s susto"
+
+
 def test_find_day_e_marcar(tmp_path):
     dbp, fac = _setup(tmp_path)
     assert A.find_day_of_cut(fac, "clip-B") == "2026-09-28"

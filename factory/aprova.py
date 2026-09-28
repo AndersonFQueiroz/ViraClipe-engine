@@ -144,7 +144,10 @@ def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
                 achou = True
     if not achou:
         return {"ok": False, "error": f"cut {cut_id} não está no dia {day}"}
-    # IA refaz descrição/hashtags a partir do título do dono (clips).
+    # IA refaz descrição/hashtags a partir do título do dono.
+    # Clips usam títulos irmãos como referência; VOD usa o próprio título.
+    base = None
+    refs: list[str] = []
     if cut_id.startswith("clip-"):
         try:
             clips = json.loads((day_dir / "clips.json").read_text(encoding="utf-8"))
@@ -154,14 +157,26 @@ def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
                      if str(x.get("clip_id", "")).startswith(cut_id[5:])), None)
         if base is not None:
             refs = [str(x.get("titulo_clip") or "") for x in clips if x is not base]
-            leg = _score.legendar_clip({**base, "titulo_clip": novo_titulo},
-                                       model, api_key or os.environ.get("GEMINI_API_KEY", ""),
-                                       gemini_fn=gemini_fn, refs=refs)
-            for lst in (scored, finais):
-                for c in lst:
-                    if str(c.get("cut_id")) == cut_id:
-                        c["descricao"] = leg.get("descricao", c.get("descricao"))
-                        c["hashtags"] = leg.get("hashtags", c.get("hashtags"))
+    else:
+        for lst in (scored, finais):
+            for c in lst:
+                if str(c.get("cut_id")) == cut_id:
+                    base = {"clip_id": cut_id, "streamer": str(c.get("streamer") or ""),
+                            "titulo_clip": novo_titulo, "views": 0,
+                            "duracao": float(c.get("duracao") or 30),
+                            "url": str(c.get("url") or "")}
+                    break
+            if base is not None:
+                break
+    if base is not None:
+        leg = _score.legendar_clip({**base, "titulo_clip": novo_titulo},
+                                   model, api_key or os.environ.get("GEMINI_API_KEY", ""),
+                                   gemini_fn=gemini_fn, refs=refs)
+        for lst in (scored, finais):
+            for c in lst:
+                if str(c.get("cut_id")) == cut_id:
+                    c["descricao"] = leg.get("descricao", c.get("descricao"))
+                    c["hashtags"] = leg.get("hashtags", c.get("hashtags"))
     try:
         (day_dir / "scored.json").write_text(
             json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
