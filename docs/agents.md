@@ -62,6 +62,13 @@ manual no código diário. Não baixar threshold para "completar 5" — dia
 fraco publica menos, não publica ruim. Blocklist e dedup nunca são
 desligados via flag rápida.
 
+## Central de 1º comentário
+
+Ver `docs/central.md`. Resumo: 1º comentário (IG+YT) é papel da central
+CaçaComentarios, **texto sempre genérico, uma campanha só** (`ViraClipe —
+1º comentário`), sem reply/DM. ViraClipe nunca posta comentário direto;
+nunca recriar fila por-vídeo (foi tentada e revertida em 28/09/2026).
+
 ## Regras para alterações
 
 - Manter tudo free: não introduzir dependência paga, GPU ou modelo local pesado.
