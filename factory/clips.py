@@ -240,7 +240,9 @@ def process_clips_day(day: str, db_path: Path, factory_data: Path,
                 continue
         if i > 0:
             _score._pace()  # 1 call por corte; mesmo assim, sem rajada
-        leg = _score.legendar_clip(c, model, key, gemini_fn=gemini_fn)
+        # Tom do próprio canal: títulos irmãos viram referência de humor.
+        refs = [x.get("titulo_clip", "") for x in clips if x is not c]
+        leg = _score.legendar_clip(c, model, key, gemini_fn=gemini_fn, refs=refs)
         print(f"clips: legenda '{leg['titulo'][:50]}' viral_clip={leg.get('viral_clip')}")
         s = _clip_to_scored(c, mp4, leg)
         scored.append(s)

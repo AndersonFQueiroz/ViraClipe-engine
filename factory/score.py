@@ -198,22 +198,24 @@ def score_candidatos(
 
 LEGENDA_PROMPT = (
     "Você legenda cortes pra página de clips na internet BR. "
-    "TOM OBRIGATÓRIO: zoeira leve, gíria de internet "
-    "(kkk, tankou, mito, insano, papo reto, f, calmo, proibido). "
+    "REGRA DE OURO: imite o nível de piada dos TÍTULOS DE REFERÊNCIA "
+    "(clips reais do MESMO canal) — mesmo humor, mesmas gírias, mesmo exagero. "
+    "Não invente um tom novo, COPIE O ESTILO deles. "
     "BANIDO tom sério/formal/jornalístico: nada de sincero, história, "
     "acompanhe, confira, momento, trajetória. Minúsculas liberadas. "
     "Retorne SOMENTE JSON: "
     '{"viral_score":0-100,"motivo":"","titulo":"","descricao":"","hashtags":[]}. '
     "Você recebe o TÍTULO ORIGINAL do clip (inspiração — NÃO copie, crie um título "
     "próprio curto <70 chars, sem clickbait mentiroso) e as VIEWS que ele fez na Twitch. "
-    "titulo: UMA frase no tom da internet. "
-    "descricao: 1-2 frases no mesmo tom + crédito '@streamer na Twitch' + link do clip. "
+    "titulo: UMA frase no estilo das referências. "
+    "descricao: 1-2 frases no mesmo estilo + crédito '@streamer na Twitch' + link do clip. "
     "hashtags: max 5 sem #, PT-BR (jogo, streamer, momento). "
     "viral_score: chance de performar no TikTok/Reels/Shorts BR."
 )
 
 
-def legendar_clip(clip: dict, model: str, api_key: str, gemini_fn=None) -> dict:
+def legendar_clip(clip: dict, model: str, api_key: str, gemini_fn=None,
+                  refs: list[str] | None = None) -> dict:
     """1 call curta por corte: título/descrição/hashtags + viral de controle.
 
     Sem chave ou em falha: fallback local (título original + crédito).
@@ -232,6 +234,9 @@ def legendar_clip(clip: dict, model: str, api_key: str, gemini_fn=None) -> dict:
         return fb
     texto = (f"TÍTULO ORIGINAL: {titulo_orig}\nVIEWS NA TWITCH: {clip.get('views')}\n"
              f"DURAÇÃO: {clip.get('duracao')}s")
+    ref_lines = "\n".join(f"- {r[:80]}" for r in (refs or [])[:5] if r and r != titulo_orig)
+    if ref_lines:
+        texto += f"\nTÍTULOS DE REFERÊNCIA (mesmo canal, imite o estilo):\n{ref_lines}"
     try:
         if gemini_fn is None:
             from google import genai  # type: ignore
