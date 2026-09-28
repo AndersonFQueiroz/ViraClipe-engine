@@ -196,6 +196,70 @@ def score_candidatos(
     return picks
 
 
+LEGENDA_PROMPT = (
+    "Você cria título/descrição/hashtags PT-BR para um corte viral de live. "
+    "Retorne SOMENTE JSON: "
+    '{"viral_score":0-100,"motivo":"","titulo":"","descricao":"","hashtags":[]}. '
+    "Você recebe o TÍTULO ORIGINAL do clip (inspiração — NÃO copie, crie um título "
+    "próprio curto <70 chars, sem clickbait mentiroso) e as VIEWS que ele fez na Twitch. "
+    "descricao: 1-2 frases com energia + crédito '@streamer na Twitch' + link do clip. "
+    "hashtags: max 5 sem #, PT-BR (jogo, streamer, momento). "
+    "viral_score: chance de performar no TikTok/Reels/Shorts BR."
+)
+
+
+def legendar_clip(clip: dict, model: str, api_key: str, gemini_fn=None) -> dict:
+    """1 call curta por corte: título/descrição/hashtags + viral de controle.
+
+    Sem chave ou em falha: fallback local (título original + crédito).
+    Nunca levanta — quota free é instável.
+    """
+    streamer = str(clip.get("streamer") or "")
+    titulo_orig = str(clip.get("titulo_clip") or "")
+    fb = {
+        "titulo": (titulo_orig or fallback_title(streamer))[:70],
+        "descricao": f"@{streamer} na Twitch 🎮\n📺 Clip original: {clip.get('url') or ''}",
+        "hashtags": [],
+        "viral_clip": None,
+        "motivo": "fallback local",
+    }
+    if not api_key and gemini_fn is None:
+        return fb
+    texto = (f"TÍTULO ORIGINAL: {titulo_orig}\nVIEWS NA TWITCH: {clip.get('views')}\n"
+             f"DURAÇÃO: {clip.get('duracao')}s")
+    try:
+        if gemini_fn is None:
+            from google import genai  # type: ignore
+
+            from . import net as _net
+
+            def _do(key: str) -> dict:
+                client = genai.Client(api_key=key or api_key)
+                resp = client.models.generate_content(
+                    model=model,
+                    contents=f"{LEGENDA_PROMPT}\nSTREAMER: {streamer}\n{texto}",
+                )
+                return parse_gemini_json(getattr(resp, "text", "") or "")
+
+            data = _net.llm_with_keys(_do, api_key)
+        else:
+            data = gemini_fn(texto, clip)
+        out = dict(fb)
+        out["titulo"] = str(data.get("titulo") or fb["titulo"])[:70]
+        desc = str(data.get("descricao") or "")
+        _txt = f"{out['titulo']} {desc}"
+        if streamer and "@" not in _txt and "twitch.tv" not in _txt and "youtube.com" not in _txt:
+            desc = (desc + f" Créditos: @{streamer}").strip()
+        out["descricao"] = desc or fb["descricao"]
+        out["hashtags"] = list(data.get("hashtags") or [])[:5]
+        out["viral_clip"] = max(0.0, min(100.0, float(data.get("viral_score", 50))))
+        out["motivo"] = str(data.get("motivo") or "")
+        return out
+    except Exception as exc:
+        print(f"legenda: Gemini falhou ({type(exc).__name__}) — fallback local")
+        return fb
+
+
 def score_day(
     day: str, factory_data: Path, model: str = "gemini-3.5-flash-lite",
     api_key: str = "", threshold: float = 75.0, daily_cap: int = 5,

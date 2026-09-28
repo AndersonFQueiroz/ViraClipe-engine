@@ -185,31 +185,37 @@ def mark_clips_usados(db_path: Path, clips: list[dict]) -> None:
         con.close()
 
 
-def _clip_to_scored(clip: dict, mp4: Path) -> dict:
+def _clip_to_scored(clip: dict, mp4: Path, legenda: dict | None = None) -> dict:
     """Adapta clip p/ formato scored.json (reuso total cutter/render/pack)."""
     cid = str(clip.get("clip_id") or "sem-id")
     dur = float(clip.get("duracao") or 30)
     views = int(clip.get("views") or 0)
+    leg = legenda or {}
+    streamer = str(clip.get("streamer") or "")
     return {
         "cut_id": f"clip-{cid[:32]}",
         "video_id": f"clip:{cid}",
-        "streamer": str(clip.get("streamer") or ""),
+        "streamer": streamer,
         "url": str(clip.get("url") or ""),
         "t_inicio": 0.0, "t_fim": dur, "duracao": dur,
         "chat": min(100.0, views / 10.0),  # views viram sinal 0-100
-        "audio": 50.0, "viral": None, "score_final": min(100.0, views / 10.0),
-        "titulo": str(clip.get("titulo_clip") or "Melhor momento")[:90],
-        # Crédito+link desde já (QC exige); LLM no item 3 refina o texto.
-        "descricao": (f"@{str(clip.get('streamer') or '')} na Twitch 🎮\n"
-                      f"📺 Clip original: {str(clip.get('url') or '')}"),
-        "hashtags": [],  # LLM no item 3
+        "audio": 50.0,
+        "viral": leg.get("viral_clip"),
+        "motivo": leg.get("motivo", ""),
+        "score_final": min(100.0, views / 10.0),
+        "titulo": str(leg.get("titulo") or clip.get("titulo_clip") or "Melhor momento")[:90],
+        "descricao": str(leg.get("descricao") or (
+            f"@{streamer} na Twitch 🎮\n📺 Clip original: {clip.get('url') or ''}")),
+        "hashtags": list(leg.get("hashtags") or []),
         "_mp4": str(mp4),
     }
 
 
 def process_clips_day(day: str, db_path: Path, factory_data: Path,
                       max_n: int = 2, min_views: int = 10,
-                      runner=subprocess.run) -> list[dict]:
+                      runner=subprocess.run,
+                      model: str = "gemini-3.5-flash-lite", api_key: str = "",
+                      gemini_fn=None) -> list[dict]:
     """Fonte A fim-a-fim até o pack: clips.json -> download -> split+marca.
 
     Retorna finais (finais.json + pack.json prontos p/ QC/telegram).
@@ -220,16 +226,23 @@ def process_clips_day(day: str, db_path: Path, factory_data: Path,
     if not clips:
         print("clips: nada novo — fonte B (VOD) deve cobrir.")
         return []
+    from . import score as _score
+
+    key = api_key or os.environ.get("GEMINI_API_KEY", "")
     raw = day_dir / "raw"
     scored, ingest_list, ok_clips = [], [], []
-    for c in clips:
+    for i, c in enumerate(clips):
         safe = "".join(x if x.isalnum() or x in "-_" else "_" for x in c["clip_id"])
         mp4 = raw / f"clip-{safe[:32]}.mp4"
         if not (mp4.exists() and mp4.stat().st_size > 100_000):
             if not download_clip(c, mp4, runner=runner):
                 print(f"clips: download falhou {c['clip_id'][:20]} — pulando (não queima)")
                 continue
-        s = _clip_to_scored(c, mp4)
+        if i > 0:
+            _score._pace()  # 1 call por corte; mesmo assim, sem rajada
+        leg = _score.legendar_clip(c, model, key, gemini_fn=gemini_fn)
+        print(f"clips: legenda '{leg['titulo'][:50]}' viral_clip={leg.get('viral_clip')}")
+        s = _clip_to_scored(c, mp4, leg)
         scored.append(s)
         ingest_list.append({**c, "video_id": s["video_id"], "mp4": str(mp4)})
         ok_clips.append(c)

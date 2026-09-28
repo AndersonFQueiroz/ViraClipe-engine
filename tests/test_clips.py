@@ -56,6 +56,32 @@ def test_clip_to_scored_tem_credito():
     assert s["chat"] == 25.0  # views/10
 
 
+def test_legendar_fallback_sem_chave():
+    from factory import score as S
+    leg = S.legendar_clip({"clip_id": "X", "streamer": "alguem",
+                           "url": "https://clips.twitch.tv/X",
+                           "titulo_clip": "jogada", "views": 300,
+                           "duracao": 30.0}, "m", "")
+    assert leg["viral_clip"] is None
+    assert "@alguem" in leg["descricao"] and "clips.twitch.tv/X" in leg["descricao"]
+
+
+def test_legendar_gemini_mock():
+    from factory import score as S
+    fake = lambda texto, clip: {"viral_score": 88, "motivo": "hype",
+                                "titulo": "SUSTO ABSURDO",
+                                "descricao": "que momento sem crédito",
+                                "hashtags": ["#susto", "alanzoka"]}
+    leg = S.legendar_clip({"clip_id": "X", "streamer": "alguem", "url": "u",
+                           "titulo_clip": "susto", "views": 900,
+                           "duracao": 20.0}, "m", "k", gemini_fn=fake)
+    assert leg["titulo"] == "SUSTO ABSURDO"
+    assert leg["viral_clip"] == 88.0
+    assert leg["hashtags"] == ["#susto", "alanzoka"][:5]
+    # normaliza crédito (QC exige @ ou link)
+    assert "@alguem" in leg["descricao"]
+
+
 def test_download_clip_mock(tmp_path):
     class R:
         returncode = 0
