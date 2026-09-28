@@ -1,7 +1,7 @@
 """Corte vertical 9:16 dos scored -> data/<dia>/corte-<cut_id>.mp4.
 
-ffmpeg 1 passo: seek + crop central + scale 720x1280 + h264/aac + faststart.
-Sem tracking de rosto no MVP (Fase 2).
+Layout split (gameplay topo + facecam base) quando há rosto; senão
+crop central. h264/aac + faststart, 1 passo ffmpeg.
 """
 from __future__ import annotations
 
@@ -10,12 +10,15 @@ import subprocess
 from pathlib import Path
 
 from . import db as _db
+from . import reframe as _rf
 
 OUT_W, OUT_H = 720, 1280
 
 
-def cut_cmd(mp4_in: Path, t_inicio: float, duracao: float, out_mp4: Path) -> list[str]:
-    vf = f"crop=ih*9/16:ih,scale={OUT_W}:{OUT_H}"
+def cut_cmd(mp4_in: Path, t_inicio: float, duracao: float, out_mp4: Path,
+            face_box: tuple[int, int, int, int] | None = None) -> list[str]:
+    split = _rf.split_filter(face_box) if face_box else None
+    vf = split or f"crop=ih*9/16:ih,scale={OUT_W}:{OUT_H}"
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-ss", f"{t_inicio:.1f}", "-t", f"{duracao:.1f}",
@@ -29,9 +32,10 @@ def cut_cmd(mp4_in: Path, t_inicio: float, duracao: float, out_mp4: Path) -> lis
 
 
 def cut_corte(mp4_in: Path, t_inicio: float, duracao: float, out_mp4: Path,
-              runner=subprocess.run) -> bool:
+              runner=subprocess.run,
+              face_box: tuple[int, int, int, int] | None = None) -> bool:
     try:
-        r = runner(cut_cmd(mp4_in, t_inicio, duracao, out_mp4),
+        r = runner(cut_cmd(mp4_in, t_inicio, duracao, out_mp4, face_box),
                    capture_output=True, text=True, timeout=900)
         return r.returncode == 0 and out_mp4.exists() and out_mp4.stat().st_size > 100_000
     except Exception:
@@ -57,9 +61,14 @@ def cutter_day(day: str, factory_data: Path, db_path: Path, runner=subprocess.ru
             cut_id = str(s.get("cut_id") or f"{vid}-{float(s.get('t_inicio', 0)):.0f}")
             out = day_dir / f"corte-{cut_id}.mp4"
             if not (out.exists() and out.stat().st_size > 100_000):
-                ok = cut_corte(Path(src), float(s.get("t_inicio", 0)),
-                               float(s.get("duracao", s.get("t_fim", 30) - s.get("t_inicio", 0) if isinstance(s.get("t_fim"), (int, float)) else 30)),
-                               out, runner=runner)
+                t_ini = float(s.get("t_inicio", 0))
+                dur = float(s.get("duracao", s.get("t_fim", 30) - s.get("t_inicio", 0) if isinstance(s.get("t_fim"), (int, float)) else 30))
+                try:
+                    box = _rf.find_face_box(Path(src), t_ini, dur, runner=runner)
+                except Exception:
+                    box = None
+                print(f"cutter: {cut_id} layout={'split' if box else 'centro'}")
+                ok = cut_corte(Path(src), t_ini, dur, out, runner=runner, face_box=box)
                 if not ok:
                     continue
             _chat = s.get("chat", 0)

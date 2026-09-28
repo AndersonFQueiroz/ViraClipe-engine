@@ -1,0 +1,49 @@
+name: Reframe Check (1 corte, zero Gemini)
+
+# Teste do split gameplay+facecam: baixa ~90s, corta 1x, manda no Telegram.
+# NENHUMA chamada Gemini (sem quota). Dry-run total.
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "URL da VOD"
+        required: true
+        default: "https://www.twitch.tv/videos/2861881396"
+      t_ini:
+        description: "Segundo inicial do corte"
+        required: false
+        default: "4470"
+      dur:
+        description: "Duracao do corte (s)"
+        required: false
+        default: "30"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: viraclipe-reframe-test
+  cancel-in-progress: false
+
+jobs:
+  reframe:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Deps
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Corte teste
+        run: python3 -m tools.reframe_check "${{ inputs.url }}" "${{ inputs.t_ini }}" "${{ inputs.dur }}"
