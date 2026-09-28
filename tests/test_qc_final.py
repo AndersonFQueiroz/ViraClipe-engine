@@ -91,6 +91,30 @@ def test_cutter_aceita_chat_none(tmp_path):
     assert len(out) == 1 and out[0]["cut_id"] == "v-10"
 
 
+def test_qc_clip_curto_15s_passa(tmp_path):
+    """Clip da comunidade (cut_id clip-*) autocontido: piso 15s, não 25s."""
+
+    def _ffprobe_20s(*args, **kwargs):
+        class R:
+            stdout = json.dumps({
+                "format": {"duration": "20.0", "size": "200000"},
+                "streams": [
+                    {"codec_type": "video", "codec_name": "h264", "width": 720, "height": 1280},
+                    {"codec_type": "audio", "codec_name": "aac"},
+                ],
+            })
+        return R()
+
+    dbp = tmp_path / "t.db"
+    _db.init_db(dbp)
+    day_dir = tmp_path / "f" / "2026-09-24"
+    day_dir.mkdir(parents=True)
+    (day_dir / "scored.json").write_text(json.dumps(_scored("clip-Abc123")), encoding="utf-8")
+    (day_dir / "final-clip-Abc123.mp4").write_bytes(b"x" * 50_000 + b"moov" + b"y" * 60_000 + b"mdat" + b"z" * 100_000)
+    ok, errors = Q.qc_day("2026-09-24", tmp_path / "f", dbp, runner=_ffprobe_20s, blocklist=[])
+    assert ok, errors
+
+
 def test_qc_sem_nenhum_mp4_falha(tmp_path):
     dbp = tmp_path / "t.db"
     _db.init_db(dbp)

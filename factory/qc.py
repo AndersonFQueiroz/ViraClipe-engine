@@ -70,8 +70,11 @@ def check_video(key: str, path: Path, errors: list[str], runner=subprocess.run) 
         errors.append(f"{key}: ffprobe erro ({exc})")
         return
     dur = float((info.get("format") or {}).get("duration") or 0)
-    if not 25 <= dur <= 70:
-        errors.append(f"{key}: duração {dur:.1f}s fora de 25-70s")
+    # Clips da comunidade já vêm autocontidos (clipador escolheu as bordas):
+    # piso 15s; cortes de VOD mantêm 25s de contexto mínimo.
+    piso = 15 if str(key).startswith("clip-") else 25
+    if not piso <= dur <= 70:
+        errors.append(f"{key}: duração {dur:.1f}s fora de {piso}-70s")
     v = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
     a = next((s for s in info.get("streams", []) if s.get("codec_type") == "audio"), {})
     if (v.get("width"), v.get("height")) != (720, 1280):

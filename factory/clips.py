@@ -12,10 +12,14 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import subprocess
 from pathlib import Path
 
+from . import cutter as _cutter
 from . import db as _db
 from . import discovery as _disc
+from . import pack_redes as _pack
+from . import render as _render
 
 MIN_DUR = 15.0
 MAX_DUR = 60.0
@@ -100,9 +104,9 @@ def register_clip(con, clip: dict) -> None:
 
 
 def discover_clips(day: str, db_path: Path, factory_data: Path,
-                   max_clips_dia: int = 5, min_views: int = 50,
+                   max_clips_dia: int = 5, min_views: int = 10,
                    min_dur: float = MIN_DUR, max_dur: float = MAX_DUR,
-                   fetch_fn=None) -> list[dict]:
+                   fetch_fn=None, registrar: bool = True) -> list[dict]:
     """Roda sozinho: whitelist Twitch -> clips novos -> data/<dia>/clips.json.
 
     Filtra duração/views/dedup, ordena por views, registra SÓ os escolhidos
@@ -134,8 +138,11 @@ def discover_clips(day: str, db_path: Path, factory_data: Path,
         escolhidos = novos[:max(0, max_clips_dia)]
         # Só os escolhidos viram "vistos": o resto do backlog sobrevive
         # para os próximos dias; o escolhido nunca mais volta.
-        for c in escolhidos:
-            register_clip(con, c)
+        # registrar=False: marcação fica p/ depois do corte OK (não queima
+        # clip cujo download falhar).
+        if registrar:
+            for c in escolhidos:
+                register_clip(con, c)
         con.commit()
     finally:
         con.close()
@@ -147,6 +154,98 @@ def discover_clips(day: str, db_path: Path, factory_data: Path,
     print(f"clips: {len(escolhidos)} novo(s) em {day} "
           f"({len(novos)} vistos-no-dia, resto já era repetido/filtro)")
     return escolhidos
+
+
+def download_clip(clip: dict, out_mp4: Path, runner=subprocess.run) -> bool:
+    """Baixa o mp4 do clip via yt-dlp (1080p quando houver)."""
+    url = str(clip.get("url") or "")
+    if not url:
+        return False
+    out_mp4.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        r = runner(
+            ["yt-dlp", "-f", "bv*+ba/b", "--no-playlist", "--no-warnings",
+             "-o", str(out_mp4), url],
+            capture_output=True, text=True, timeout=600,
+        )
+        return (r.returncode == 0 and out_mp4.exists()
+                and out_mp4.stat().st_size > 100_000)
+    except Exception:
+        return False
+
+
+def mark_clips_usados(db_path: Path, clips: list[dict]) -> None:
+    """Registra clips como vistos APÓS corte OK (não queima falha)."""
+    con = _db.connect(db_path)
+    try:
+        for c in clips:
+            register_clip(con, c)
+        con.commit()
+    finally:
+        con.close()
+
+
+def _clip_to_scored(clip: dict, mp4: Path) -> dict:
+    """Adapta clip p/ formato scored.json (reuso total cutter/render/pack)."""
+    cid = str(clip.get("clip_id") or "sem-id")
+    dur = float(clip.get("duracao") or 30)
+    views = int(clip.get("views") or 0)
+    return {
+        "cut_id": f"clip-{cid[:32]}",
+        "video_id": f"clip:{cid}",
+        "streamer": str(clip.get("streamer") or ""),
+        "url": str(clip.get("url") or ""),
+        "t_inicio": 0.0, "t_fim": dur, "duracao": dur,
+        "chat": min(100.0, views / 10.0),  # views viram sinal 0-100
+        "audio": 50.0, "viral": None, "score_final": min(100.0, views / 10.0),
+        "titulo": str(clip.get("titulo_clip") or "Melhor momento")[:90],
+        # Crédito+link desde já (QC exige); LLM no item 3 refina o texto.
+        "descricao": (f"@{str(clip.get('streamer') or '')} na Twitch 🎮\n"
+                      f"📺 Clip original: {str(clip.get('url') or '')}"),
+        "hashtags": [],  # LLM no item 3
+        "_mp4": str(mp4),
+    }
+
+
+def process_clips_day(day: str, db_path: Path, factory_data: Path,
+                      max_n: int = 2, min_views: int = 10,
+                      runner=subprocess.run) -> list[dict]:
+    """Fonte A fim-a-fim até o pack: clips.json -> download -> split+marca.
+
+    Retorna finais (finais.json + pack.json prontos p/ QC/telegram).
+    """
+    day_dir = factory_data / day
+    clips = discover_clips(day, db_path, factory_data, max_clips_dia=max_n,
+                           min_views=min_views, registrar=False)
+    if not clips:
+        print("clips: nada novo — fonte B (VOD) deve cobrir.")
+        return []
+    raw = day_dir / "raw"
+    scored, ingest_list, ok_clips = [], [], []
+    for c in clips:
+        safe = "".join(x if x.isalnum() or x in "-_" else "_" for x in c["clip_id"])
+        mp4 = raw / f"clip-{safe[:32]}.mp4"
+        if not (mp4.exists() and mp4.stat().st_size > 100_000):
+            if not download_clip(c, mp4, runner=runner):
+                print(f"clips: download falhou {c['clip_id'][:20]} — pulando (não queima)")
+                continue
+        s = _clip_to_scored(c, mp4)
+        scored.append(s)
+        ingest_list.append({**c, "video_id": s["video_id"], "mp4": str(mp4)})
+        ok_clips.append(c)
+    if not scored:
+        return []
+    (day_dir / "scored.json").write_text(
+        json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
+    (day_dir / "ingest.json").write_text(
+        json.dumps(ingest_list, ensure_ascii=False, indent=1), encoding="utf-8")
+    cortes = _cutter.cutter_day(day, factory_data, db_path, runner=runner)
+    finais = _render.render_day(day, factory_data, runner=runner)
+    if finais:
+        _pack.build_pack(day_dir, finais)
+        mark_clips_usados(db_path, ok_clips)
+        print(f"clips: {len(finais)} final(is) + pack pronto.")
+    return finais
 
 
 def main(day: str, db_path: Path, factory_data: Path) -> int:

@@ -45,6 +45,27 @@ def test_sem_credencial_vazio():
     assert C.fetch_clips("alguem") == []
 
 
+def test_clip_to_scored_tem_credito():
+    s = C._clip_to_scored(
+        {"clip_id": "Abc", "streamer": "alguem", "url": "https://clips.twitch.tv/Abc",
+         "titulo_clip": "jogada", "duracao": 30.0, "views": 250},
+        __import__("pathlib").Path("/tmp/x.mp4"),
+    )
+    assert s["cut_id"].startswith("clip-")
+    assert "@alguem" in s["descricao"] and "clips.twitch.tv" in s["descricao"]
+    assert s["chat"] == 25.0  # views/10
+
+
+def test_download_clip_mock(tmp_path):
+    class R:
+        returncode = 0
+    out = tmp_path / "c.mp4"
+    out.write_bytes(b"0" * 200_000)
+    ok = C.download_clip({"url": "https://clips.twitch.tv/X"}, out,
+                         runner=lambda *a, **k: R())
+    assert ok
+
+
 def test_dedup_camadas(tmp_path):
     dbp = tmp_path / "t.db"
     _db.init_db(dbp)
