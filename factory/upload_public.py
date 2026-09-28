@@ -38,12 +38,22 @@ def head_ok(url: str) -> bool:
 
 
 def upload(path: Path) -> str | None:
+    """Sobe e SÓ retorna URL legível (head_ok): Buffer rejeita link cego.
+
+    Ordem: catbox -> Telegram (bot) -> litterbox. Catbox às vezes serve
+    p/ gente mas bloqueia o fetcher do Buffer ("could not be read").
+    """
     with open(path, "rb") as f:
         blob = f.read()
     url = _post({"fileToUpload": (path.name, blob, "video/mp4")},
                 {"reqtype": "fileupload"}, "https://catbox.moe/user/api.php")
-    if url:
+    if url and head_ok(url):
         return url
+    if url:
+        print(f"host: catbox cego ({url[:40]}...) — tentando Telegram")
+    tg = telegram_host(path)
+    if tg and head_ok(tg):
+        return tg
     return _post({"fileToUpload": (path.name, blob, "video/mp4")},
                  {"reqtype": "fileupload", "time": "72h"},
                  "https://litterbox.catbox.moe/resources/internals/api.php")

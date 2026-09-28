@@ -85,6 +85,17 @@ def test_fila_rollover_dia_seguinte(tmp_path):
     assert A.comprometidos(dbp, "2026-09-29") == 0
 
 
+def test_slot_passado_e_pulado(tmp_path):
+    dbp = tmp_path / "t.db"
+    A._db.init_db(dbp)
+    # 22h UTC: só resta o slot 21h BRT (00h UTC+1d)
+    dia, slot = A.proximo_slot(dbp, "2026-09-28", "2026-09-28T22:00:00+00:00")
+    assert (dia, slot) == ("2026-09-28", 4)
+    # 23h59 UTC: amanhã
+    dia2, slot2 = A.proximo_slot(dbp, "2026-09-28", "2026-09-28T23:50:00+00:00")
+    assert (dia2, slot2) == ("2026-09-29", 0)
+
+
 def test_enfileirar_e_promover(tmp_path, monkeypatch):
     monkeypatch.setenv("BUFFER_API_KEY", "tok")
     dbp, fac = _setup(tmp_path)
@@ -93,7 +104,8 @@ def test_enfileirar_e_promover(tmp_path, monkeypatch):
     (day_dir / "final-clip-A.mp4").write_bytes(b"x" * 200_000)
     import datetime as _dt
     res = A.enfileirar("2026-09-28", fac, dbp, "clip-A")
-    assert res["ok"] and res["dia_alvo"] == _dt.date.today().isoformat() and res["slot"] == 0
+    assert res["ok"] and res["dia_alvo"] >= _dt.date.today().isoformat()
+    assert 0 <= res["slot"] < 5
     up = lambda p: "https://cdn/x.mp4"
     ch = lambda t: {"instagram": "i", "tiktok": "t", "youtube": "y"}
     feitas = []

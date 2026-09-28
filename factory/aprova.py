@@ -232,22 +232,39 @@ def comprometidos(db_path: Path, dia: str) -> int:
         con.close()
 
 
-def proximo_slot(db_path: Path, hoje: str) -> tuple[str, int]:
-    """Primeiro (dia, slot) livre — hoje cheio, rola p/ amanhã+. Até 14 dias."""
+def proximo_slot(db_path: Path, hoje: str, agora_utc: str = "") -> tuple[str, int]:
+    """Primeiro (dia, slot) livre e FUTURO — hoje cheio/passado, rola p/ amanhã+."""
     import datetime as _dt
 
+    from config.settings import SLOTS_UTC
+
     base = _dt.date(int(hoje[:4]), int(hoje[5:7]), int(hoje[8:10]))
+    try:
+        agora = _dt.datetime.fromisoformat(agora_utc) if agora_utc else \
+            _dt.datetime.now(_dt.timezone.utc)
+    except ValueError:
+        agora = _dt.datetime.now(_dt.timezone.utc)
+    if agora.tzinfo is None:
+        agora = agora.replace(tzinfo=_dt.timezone.utc)
     _db.init_db(db_path)
     con = _db.connect(db_path)
     try:
         for d in range(15):
-            dia = (base + _dt.timedelta(days=d)).isoformat()
+            dia = base + _dt.timedelta(days=d)
             usados = {r["slot"] for r in con.execute(
                 "SELECT slot FROM fila WHERE dia_alvo=? AND status IN ('na_fila','agendado')",
-                (dia,)).fetchall()}
+                (dia.isoformat(),)).fetchall()}
             for s in range(SLOTS_DIA):
-                if s not in usados:
-                    return dia, s
+                if s in usados:
+                    continue
+                h, m = SLOTS_UTC[s % len(SLOTS_UTC)]
+                due = _dt.datetime(dia.year, dia.month, dia.day, h, m,
+                                   tzinfo=_dt.timezone.utc)
+                if h == 0:
+                    due += _dt.timedelta(days=1)
+                if d == 0 and due <= agora + _dt.timedelta(minutes=15):
+                    continue  # slot de hoje já passou: pula
+                return dia.isoformat(), s
     finally:
         con.close()
     return (base + _dt.timedelta(days=14)).isoformat(), SLOTS_DIA - 1
@@ -334,6 +351,18 @@ def promover_fila(factory_data: Path, db_path: Path, hoje: str = "",
             fail.append(r["cut_id"])
             continue
         due = due_at(r["dia_alvo"], int(r["slot"]))
+        import datetime as _dt2
+        if _dt2.datetime.fromisoformat(due) <= _dt2.datetime.now(_dt2.timezone.utc):
+            nd, ns = proximo_slot(db_path, hoje)  # passou da hora: remaneja
+            con0 = _db.connect(db_path)
+            try:
+                con0.execute("UPDATE fila SET dia_alvo=?, slot=? WHERE cut_id=?",
+                             (nd, ns, r["cut_id"]))
+                con0.commit()
+            finally:
+                con0.close()
+            r["dia_alvo"], r["slot"] = nd, ns
+            due = due_at(nd, ns)
         bom = True
         for svc in _pb.WANT:
             if svc not in chans:
