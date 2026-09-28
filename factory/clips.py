@@ -204,8 +204,7 @@ def _clip_to_scored(clip: dict, mp4: Path, legenda: dict | None = None) -> dict:
         "motivo": leg.get("motivo", ""),
         "score_final": min(100.0, views / 10.0),
         "titulo": str(leg.get("titulo") or clip.get("titulo_clip") or "Melhor momento")[:90],
-        "descricao": str(leg.get("descricao") or (
-            f"@{streamer} na Twitch 🎮\n📺 Clip original: {clip.get('url') or ''}")),
+        "descricao": str(leg.get("descricao") or f"@{streamer} na Twitch 🎮"),
         "hashtags": list(leg.get("hashtags") or []),
         "_mp4": str(mp4),
     }

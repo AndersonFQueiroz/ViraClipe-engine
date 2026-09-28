@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import DB_PATH, FACTORY_DATA
-from factory import (aprova, clips, cutter, db as _db, discovery, ingest,
+from factory import (aprova, clips, cutter, discovery, ingest,
                      pack_redes, pack_telegram, post_buffer, qc, render,
                      score, signals, transcribe)
 
@@ -28,33 +28,8 @@ def log(msg: str) -> None:
     print(f"[+{time.time()-T0:6.1f}s] {msg}", flush=True)
 
 
-def _marcar_agendados(day: str) -> None:
-    """Cortes do pack com post OK no buffer.json -> status agendado."""
-    import json as _json
-
-    day_dir = FACTORY_DATA / day
-    try:
-        pack = _json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-        buf = _json.loads((day_dir / "buffer.json").read_text(encoding="utf-8"))
-    except Exception:
-        return
-    ok_keys = {r.get("key") for r in buf.get("posts", []) if r.get("id")}
-    cids = [str((pack.get("creditos") or {}).get(k, {}).get("cut_id"))
-            for k in ok_keys]
-    cids = [c for c in cids if c]
-    if not cids:
-        return
-    con = _db.connect(DB_PATH)
-    try:
-        for cid in cids:
-            con.execute("UPDATE cortes SET status='agendado' WHERE cut_id=?", (cid,))
-        con.commit()
-    finally:
-        con.close()
-
-
 def _finalizar_auto(day: str, finais: list[dict]) -> int:
-    """Fonte A: 100% automática — QC -> Buffer -> log Telegram. Sem botão."""
+    """Fonte A: 100% automática — QC -> Buffer direto -> log Telegram. Sem botão."""
     if qc.main(day, FACTORY_DATA, DB_PATH) != 0:
         log("QC FALHOU — nada enviado.")
         return 1
@@ -62,7 +37,7 @@ def _finalizar_auto(day: str, finais: list[dict]) -> int:
     rc_buf = post_buffer.main(day, FACTORY_DATA)
     log(f"fonte A auto-post buffer exit={rc_buf} (3 = sem chave, pack pronto).")
     if rc_buf == 0:
-        _marcar_agendados(day)
+        log(f"fonte A: {aprova.registrar_posts(day, FACTORY_DATA, DB_PATH)} slot(s) ocupado(s).")
     rc_tg = pack_telegram.main(day, FACTORY_DATA)
     log(f"fonte A log Telegram exit={rc_tg}.")
     return 0 if rc_buf in (0, 3) else rc_buf
@@ -136,10 +111,20 @@ def main(argv: list[str]) -> int:
     FACTORY_DATA.mkdir(parents=True, exist_ok=True)
     log(f"dia {day} fonte={fonte}")
 
+    # 1º: promove fila aprovada vencida (ontem/aprovado-tarde entra hoje).
+    try:
+        promo = aprova.promover_fila(FACTORY_DATA, DB_PATH, day)
+        if promo.get("agendados"):
+            log(f"fila promovida: {promo}")
+    except Exception as exc:
+        log(f"fila: {type(exc).__name__} (sem chave? segue o dia).")
+    livres = max(0, 5 - aprova.comprometidos(DB_PATH, day))
+    log(f"slots livres hoje: {livres}/5.")
+
     finais: list[dict] = []
     usou_b = False
-    if fonte in ("auto", "a"):
-        finais = fonte_a(day, max_n)
+    if fonte in ("auto", "a") and livres > 0:
+        finais = fonte_a(day, min(max_n, livres))
     if finais and fonte == "auto":
         # Fonte A é 100% automática: posta direto, sem botão.
         log(f"fonte A: {len(finais)} final(is) — auto-postando.")

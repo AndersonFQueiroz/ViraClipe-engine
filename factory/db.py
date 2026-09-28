@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS feedback_views(
   coletado_em TEXT NOT NULL DEFAULT '',
   PRIMARY KEY(cut_id, rede)
 );
+CREATE TABLE IF NOT EXISTS fila(
+  cut_id TEXT PRIMARY KEY,
+  mp4 TEXT NOT NULL DEFAULT '',
+  titulo TEXT NOT NULL DEFAULT '',
+  caption TEXT NOT NULL DEFAULT '',
+  caption_tt TEXT NOT NULL DEFAULT '',
+  dia_alvo TEXT NOT NULL DEFAULT '',
+  slot INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'na_fila',
+  criado_em TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS pesos_learned(
   chave TEXT PRIMARY KEY,
   valor REAL NOT NULL,

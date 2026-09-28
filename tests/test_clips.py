@@ -52,7 +52,7 @@ def test_clip_to_scored_tem_credito():
         __import__("pathlib").Path("/tmp/x.mp4"),
     )
     assert s["cut_id"].startswith("clip-")
-    assert "@alguem" in s["descricao"] and "clips.twitch.tv" in s["descricao"]
+    assert "@alguem" in s["descricao"] and "http" not in s["descricao"]
     assert s["chat"] == 25.0  # views/10
 
 
@@ -63,7 +63,7 @@ def test_legendar_fallback_sem_chave():
                            "titulo_clip": "jogada", "views": 300,
                            "duracao": 30.0}, "m", "")
     assert leg["viral_clip"] is None
-    assert "@alguem" in leg["descricao"] and "clips.twitch.tv/X" in leg["descricao"]
+    assert "@alguem" in leg["descricao"] and "http" not in leg["descricao"]
 
 
 def test_legendar_gemini_mock():

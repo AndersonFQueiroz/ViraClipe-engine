@@ -221,7 +221,8 @@ LEGENDA_PROMPT = (
     "Você recebe o TÍTULO ORIGINAL do clip (inspiração — NÃO copie, crie um título "
     "próprio curto <70 chars, sem clickbait mentiroso) e as VIEWS que ele fez na Twitch. "
     "titulo: UMA frase no estilo das referências. "
-    "descricao: 1-2 frases no mesmo estilo + crédito '@streamer na Twitch' + link do clip. "
+    "descricao: '@streamer' na 1ª linha + 1 frase breve no mesmo estilo. "
+    "SEM links/URLs na descricao (só @). "
     "hashtags: max 5 sem #, PT-BR (jogo, streamer, momento). "
     "viral_score: chance de performar no TikTok/Reels/Shorts BR."
 )
@@ -238,7 +239,7 @@ def legendar_clip(clip: dict, model: str, api_key: str, gemini_fn=None,
     titulo_orig = str(clip.get("titulo_clip") or "")
     fb = {
         "titulo": (titulo_orig or fallback_title(streamer))[:70],
-        "descricao": f"@{streamer} na Twitch 🎮\n📺 Clip original: {clip.get('url') or ''}",
+        "descricao": f"@{streamer} na Twitch 🎮",
         "hashtags": [],
         "viral_clip": None,
         "motivo": "fallback local",
@@ -278,6 +279,9 @@ def legendar_clip(clip: dict, model: str, api_key: str, gemini_fn=None,
         if url and url not in desc:
             desc = (desc + f" 📺 Clip: {url}").strip()
         out["descricao"] = desc or fb["descricao"]
+        # Sem ID/link na descricao: só @streamer + frase breve.
+        out["descricao"] = re.sub(r"https?://\S+", "", out["descricao"]).strip()
+        out["descricao"] = re.sub(r"📺\s*Clip:?\s*", "", out["descricao"]).strip()
         tags = data.get("hashtags") or []
         if isinstance(tags, str):
             tags = [tags]

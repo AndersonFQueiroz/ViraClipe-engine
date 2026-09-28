@@ -48,6 +48,11 @@ def test_pack_legendas_e_kwai(tmp_path):
     assert "https://twitch.tv/videos/1" in pack["captions"]["c1"]
     cap_tt, _ = P.caption_for(finais[0], "tiktok")
     assert "#clipe" in cap_tt
+    cap_clip, _ = P.caption_for({"cut_id": "clip-X", "video_id": "clip:x",
+                                 "streamer": "alguem", "titulo": "T",
+                                 "descricao": "@alguem festa", "hashtags": [],
+                                 "url": "https://clips.twitch.tv/X"}, "instagram")
+    assert "@alguem" in cap_clip and "clips.twitch.tv" not in cap_clip
     z = day / "pack_kwai.zip"
     assert z.exists()
     assert any(n.endswith("-legenda.txt") for n in zipfile.ZipFile(z).namelist())

@@ -113,6 +113,72 @@ def aprovar(day: str, factory_data: Path, db_path: Path, cut_id: str,
     return {"ok": True, "cut_id": cut_id, "key": key}
 
 
+def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
+                   novo_titulo: str, model: str = "gemini-3.5-flash-lite",
+                   api_key: str = "", gemini_fn=None) -> dict:
+    """Título do dono vira base: IA refaz a descrição em cima dele.
+
+    Atualiza cortes + scored/finais/pack (sem re-render: título não é
+    queimado no vídeo). Retorna resumo — nunca levanta.
+    """
+    from . import pack_redes as _pack
+    from . import score as _score
+
+    novo_titulo = (novo_titulo or "").strip()[:90]
+    if not novo_titulo:
+        return {"ok": False, "error": "título vazio"}
+    day = find_day_of_cut(factory_data, cut_id)
+    if not day:
+        return {"ok": False, "error": f"cut {cut_id} fora do pack"}
+    day_dir = factory_data / day
+    try:
+        scored = json.loads((day_dir / "scored.json").read_text(encoding="utf-8"))
+        finais = json.loads((day_dir / "finais.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {"ok": False, "error": "scored/finais ilegíveis"}
+    achou = False
+    for lst in (scored, finais):
+        for c in lst:
+            if str(c.get("cut_id")) == cut_id:
+                c["titulo"] = novo_titulo
+                achou = True
+    if not achou:
+        return {"ok": False, "error": f"cut {cut_id} não está no dia {day}"}
+    # IA refaz descrição/hashtags a partir do título do dono (clips).
+    if cut_id.startswith("clip-"):
+        try:
+            clips = json.loads((day_dir / "clips.json").read_text(encoding="utf-8"))
+        except Exception:
+            clips = []
+        base = next((x for x in clips
+                     if str(x.get("clip_id", "")).startswith(cut_id[5:])), None)
+        if base is not None:
+            refs = [str(x.get("titulo_clip") or "") for x in clips if x is not base]
+            leg = _score.legendar_clip({**base, "titulo_clip": novo_titulo},
+                                       model, api_key or os.environ.get("GEMINI_API_KEY", ""),
+                                       gemini_fn=gemini_fn, refs=refs)
+            for lst in (scored, finais):
+                for c in lst:
+                    if str(c.get("cut_id")) == cut_id:
+                        c["descricao"] = leg.get("descricao", c.get("descricao"))
+                        c["hashtags"] = leg.get("hashtags", c.get("hashtags"))
+    try:
+        (day_dir / "scored.json").write_text(
+            json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
+        (day_dir / "finais.json").write_text(
+            json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
+        _pack.build_pack(day_dir, finais)
+    except Exception as exc:
+        return {"ok": False, "error": f"pack falhou: {type(exc).__name__}"}
+    con = _db.connect(db_path)
+    try:
+        con.execute("UPDATE cortes SET titulo=? WHERE cut_id=?", (novo_titulo, cut_id))
+        con.commit()
+    finally:
+        con.close()
+    return {"ok": True, "cut_id": cut_id, "titulo": novo_titulo}
+
+
 def rejeitar(db_path: Path, cut_id: str, motivo: str = "") -> dict:
     con = _db.connect(db_path)
     try:
@@ -127,11 +193,195 @@ def rejeitar(db_path: Path, cut_id: str, motivo: str = "") -> dict:
         con.close()
 
 
+SLOTS_DIA = 5
+
+
+def comprometidos(db_path: Path, dia: str) -> int:
+    """Cortes já donos de slot num dia (na fila + agendados)."""
+    _db.init_db(db_path)
+    con = _db.connect(db_path)
+    try:
+        row = con.execute(
+            "SELECT COUNT(*) c FROM fila WHERE dia_alvo=? AND status IN ('na_fila','agendado')",
+            (dia,)).fetchone()
+        return int(row["c"] if row else 0)
+    finally:
+        con.close()
+
+
+def proximo_slot(db_path: Path, hoje: str) -> tuple[str, int]:
+    """Primeiro (dia, slot) livre — hoje cheio, rola p/ amanhã+. Até 14 dias."""
+    import datetime as _dt
+
+    base = _dt.date(int(hoje[:4]), int(hoje[5:7]), int(hoje[8:10]))
+    _db.init_db(db_path)
+    con = _db.connect(db_path)
+    try:
+        for d in range(15):
+            dia = (base + _dt.timedelta(days=d)).isoformat()
+            usados = {r["slot"] for r in con.execute(
+                "SELECT slot FROM fila WHERE dia_alvo=? AND status IN ('na_fila','agendado')",
+                (dia,)).fetchall()}
+            for s in range(SLOTS_DIA):
+                if s not in usados:
+                    return dia, s
+    finally:
+        con.close()
+    return (base + _dt.timedelta(days=14)).isoformat(), SLOTS_DIA - 1
+
+
+def due_at(dia_alvo: str, slot: int) -> str:
+    """ISO UTC do slot (9/12/15/18/21 BRT). Slot 0h cai no dia seguinte."""
+    import datetime as _dt
+
+    from config.settings import SLOTS_UTC
+
+    h, m = SLOTS_UTC[slot % len(SLOTS_UTC)]
+    base = _dt.date(int(dia_alvo[:4]), int(dia_alvo[5:7]), int(dia_alvo[8:10]))
+    if h == 0:
+        base += _dt.timedelta(days=1)
+    return _dt.datetime(base.year, base.month, base.day, h, m,
+                        tzinfo=_dt.timezone.utc).isoformat()
+
+
+def enfileirar(day: str, factory_data: Path, db_path: Path, cut_id: str) -> dict:
+    """Aprovação entra na fila (snapshot título/legenda/mp4). Rola de dia se cheio."""
+    import datetime as _dt
+
+    st = _status_map(db_path).get(cut_id)
+    if st not in (*PENDENTE, "aprovado"):
+        return {"ok": False, "error": f"cut {cut_id} não está pendente (status={st})"}
+    day_dir = factory_data / day
+    finais = {str(f.get("cut_id")): f for f in _finais(day_dir)}
+    f = finais.get(cut_id)
+    if not f:
+        return {"ok": False, "error": f"cut {cut_id} fora dos finais"}
+    key = key_of_cut(day_dir, cut_id)
+    try:
+        pack = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {"ok": False, "error": "pack ilegível"}
+    dia_alvo, slot = proximo_slot(db_path, _dt.date.today().isoformat())
+    _db.init_db(db_path)
+    con = _db.connect(db_path)
+    try:
+        con.execute(
+            "INSERT OR REPLACE INTO fila(cut_id, mp4, titulo, caption, caption_tt,"
+            " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?)",
+            (cut_id, str(f.get("mp4") or ""),
+             str(f.get("titulo") or "")[:90],
+             str((pack.get("captions") or {}).get(key or "", ""))[:2100],
+             str((pack.get("captions_tt") or {}).get(key or "", ""))[:2100],
+             dia_alvo, slot, "na_fila", _dt.date.today().isoformat()))
+        con.execute("UPDATE cortes SET status='na_fila' WHERE cut_id=?", (cut_id,))
+        con.commit()
+    finally:
+        con.close()
+    return {"ok": True, "cut_id": cut_id, "dia_alvo": dia_alvo, "slot": slot}
+
+
+def promover_fila(factory_data: Path, db_path: Path, hoje: str = "",
+                  channels_fn=None, create_fn=None, uploader=None) -> dict:
+    """Agenda no Buffer tudo na fila com dia_alvo vencido. Retorna resumo."""
+    import datetime as _dt
+
+    from . import post_buffer as _pb
+    from . import upload_public as _up
+
+    hoje = hoje or _dt.date.today().isoformat()
+    token = os.environ.get("BUFFER_API_KEY", "")
+    if not token:
+        return {"ok": False, "error": "sem BUFFER_API_KEY"}
+    _db.init_db(db_path)
+    con = _db.connect(db_path)
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM fila WHERE status='na_fila' AND dia_alvo<=? ORDER BY dia_alvo, slot",
+            (hoje,)).fetchall()]
+    finally:
+        con.close()
+    if not rows:
+        return {"ok": True, "agendados": 0}
+    chans = (channels_fn or _pb.channels)(token)
+    up = uploader or _up.upload
+    ok, fail = 0, []
+    for r in rows:
+        url = up(Path(r["mp4"])) if r["mp4"] else None
+        if not url:
+            fail.append(r["cut_id"])
+            continue
+        due = due_at(r["dia_alvo"], int(r["slot"]))
+        bom = True
+        for svc in _pb.WANT:
+            if svc not in chans:
+                continue
+            text = (r["caption_tt"] if svc == "tiktok" else r["caption"])[:2100]
+            try:
+                (create_fn or _pb.create_post)(token, svc, chans[svc], text, url,
+                                               due, r["titulo"] or f"ViraClipe {r['dia_alvo']}")
+            except Exception:
+                bom = False
+        con = _db.connect(db_path)
+        try:
+            if bom:
+                con.execute("UPDATE fila SET status='agendado' WHERE cut_id=?", (r["cut_id"],))
+                con.execute("UPDATE cortes SET status='agendado' WHERE cut_id=?", (r["cut_id"],))
+                ok += 1
+            else:
+                fail.append(r["cut_id"])
+            con.commit()
+        finally:
+            con.close()
+    return {"ok": True, "agendados": ok, "falhas": fail}
+
+
+def registrar_posts(day: str, factory_data: Path, db_path: Path) -> int:
+    """Auto-post (fonte A) também ocupa slot: espelha pack+buffer na fila."""
+    import datetime as _dt
+
+    day_dir = factory_data / day
+    try:
+        pack = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+        buf = json.loads((day_dir / "buffer.json").read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    ok_keys = {r.get("key") for r in buf.get("posts", []) if r.get("id")}
+    if not ok_keys:
+        return 0
+    _db.init_db(db_path)
+    con = _db.connect(db_path)
+    try:
+        n = 0
+        for key in sorted(ok_keys):
+            cred = (pack.get("creditos") or {}).get(key) or {}
+            cid = str(cred.get("cut_id") or "")
+            if not cid:
+                continue
+            try:
+                slot = int(key[1:]) - 1
+            except ValueError:
+                slot = 0
+            con.execute(
+                "INSERT OR REPLACE INTO fila(cut_id, mp4, titulo, caption, caption_tt,"
+                " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?)",
+                (cid, str((pack.get("videos") or {}).get(key) or ""),
+                 str((pack.get("titles") or {}).get(key) or "")[:90],
+                 str((pack.get("captions") or {}).get(key) or "")[:2100],
+                 str((pack.get("captions_tt") or {}).get(key) or "")[:2100],
+                 day, slot, "agendado", _dt.date.today().isoformat()))
+            con.execute("UPDATE cortes SET status='agendado' WHERE cut_id=?", (cid,))
+            n += 1
+        con.commit()
+        return n
+    finally:
+        con.close()
+
+
 def preview_caption(corte: dict) -> str:
     titulo = str(corte.get("titulo") or "sem título")[:90]
     streamer = str(corte.get("streamer") or "?")
     views = corte.get("chat", "")
-    return (f"🔍 PRÉVIA — tocar ✅ agenda, ❌ descarta\n"
+    return (f"🔍 PRÉVIA — ✅ fila, ❌ descarta, ↩️ responda p/ dar o título\n"
             f"📌 {titulo}\n🎮 @{streamer} | sinal {views}\n"
             f"🆔 `{corte.get('cut_id')}`")
 

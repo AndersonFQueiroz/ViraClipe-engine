@@ -101,7 +101,7 @@ def run() -> int:
         return 3
     from telegram import Update  # import tardio: helpers testam sem a lib
     from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
-                              ContextTypes)
+                              ContextTypes, MessageHandler, filters)
 
     from factory import aprova as _ap
 
@@ -109,7 +109,7 @@ def run() -> int:
         return not owner or str(u.effective_chat.id) == str(owner)
 
     async def _start(u: Update, c: ContextTypes.DEFAULT_TYPE):
-        await u.message.reply_text("ViraClipe monitor.\n/status\n/fila [AAAA-MM-DD]\n/pendentes [AAAA-MM-DD]\n/remover <cut_id> [motivo] (só dono)")
+        await u.message.reply_text("ViraClipe monitor.\n/status\n/fila [AAAA-MM-DD]\n/pendentes [AAAA-MM-DD]\n/remover <cut_id> [motivo] (só dono)\n↩️ responder prévia com texto = título seu (IA refaz descrição)")
 
     async def _status(u: Update, c: ContextTypes.DEFAULT_TYPE):
         await u.message.reply_text(status_text())
@@ -152,15 +152,40 @@ def run() -> int:
         if data.startswith("ap:"):
             day = _ap.find_day_of_cut(FACTORY_DATA, data[3:]) or _dt.date.today().isoformat()
             cid = data[3:]
-            res = _ap.aprovar(day, FACTORY_DATA, DB_PATH, cid)
-            if res.get("ok"):
-                await q.edit_message_caption(caption=f"✅ AGENDADO {cid} (slot {res.get('key')}).")
-            else:
+            res = _ap.enfileirar(day, FACTORY_DATA, DB_PATH, cid)
+            if not res.get("ok"):
                 await q.edit_message_caption(caption=f"⚠️ {res.get('error', 'falha')}")
+                return
+            promo = _ap.promover_fila(FACTORY_DATA, DB_PATH, day)
+            try:
+                from config.settings import SLOTS_UTC as _SL
+                h, m = _SL[int(res.get("slot", 0)) % len(_SL)]
+            except Exception:
+                h, m = 12, 0
+            await q.edit_message_caption(
+                caption=f"✅ na fila: {res.get('dia_alvo')} {h:02d}h{m:02d} "
+                        f"(promo: {promo.get('agendados', 0)}).")
         elif data.startswith("rj:"):
             cid = data[3:]
             _ap.rejeitar(DB_PATH, cid)
             await q.edit_message_caption(caption=f"❌ descartado {cid} (nunca posta).")
+
+    async def _titulo_reply(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        # Responder a prévia com texto = define o título (IA refaz a descrição).
+        if not _is_owner(u) or not u.message or not u.message.text:
+            return
+        rep = u.message.reply_to_message
+        if not rep or not rep.caption:
+            return
+        import re as _re
+        m = _re.search(r"🆔 `([^`]+)`", rep.caption)
+        if not m:
+            return
+        res = _ap.definir_titulo(FACTORY_DATA, DB_PATH, m.group(1), u.message.text)
+        if res.get("ok"):
+            await u.message.reply_text(f"✏️ título ok: {res['titulo']}\nToque ✅ p/ entrar na fila.")
+        else:
+            await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
 
     async def _daily(ctx: ContextTypes.DEFAULT_TYPE):
         """Cron interno 08h BRT: roda tools/dia.py num thread e avisa o dono."""
@@ -203,6 +228,7 @@ def run() -> int:
     app.add_handler(CommandHandler("fila", _fila))
     app.add_handler(CommandHandler("pendentes", _pendentes))
     app.add_handler(CallbackQueryHandler(_tap))
+    app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, _titulo_reply))
     app.add_handler(CommandHandler("remover", _remover))
     print("Bot ViraClipe no ar (polling).")
     app.run_polling()
