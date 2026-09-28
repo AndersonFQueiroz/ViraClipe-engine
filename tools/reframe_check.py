@@ -54,10 +54,10 @@ def main(argv: list[str]) -> int:
         return 1
     dl = subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-ss", f"{t_ini:.0f}", "-t", "95",
-         "-i", stream[0], "-c:v", "libx264", "-preset", "veryfast",
+         "-i", stream[0], "-ss", f"{t_ini:.0f}", "-t", "95",
+         "-c:v", "libx264", "-preset", "veryfast",
          "-crf", "23", "-c:a", "aac", str(src)],
-        capture_output=True, text=True, timeout=600,
+        capture_output=True, text=True, timeout=900,
     )
     if dl.returncode != 0 or not src.exists() or src.stat().st_size < 100_000:
         print(f"ffmpeg seek falhou: {(dl.stderr or '')[-300:]}")
