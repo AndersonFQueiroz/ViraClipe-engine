@@ -15,8 +15,12 @@ from config.secret_loader import get_gemini_prompt, score_weights
 # Prompt público capado — full vem via VIRACLIP_PROMPT[_B64] em runtime.
 PROMPT = (
     "Você avalia um trecho de live para cortes virais em PT-BR. "
-    "Retorne SOMENTE JSON: "
-    '{"viral_score":0-100,"motivo":"","titulo":"","descricao":"","hashtags":[]}. '
+    "Dê 3 notas (0-100) + viral_score final. Retorne SOMENTE JSON: "
+    '{"viral_score":0-100,"hook":0-100,"payoff":0-100,"densidade":0-100,'
+    '"motivo":"","titulo":"","descricao":"","hashtags":[]}. '
+    "hook = os 3s iniciais seguram o scroll? (pergunta, susto, frase absurda). "
+    "payoff = o trecho fecha a própria tensão em <60s? (sem payoff, nota baixa). "
+    "densidade = emoção/informação por segundo (riso, clutch, refrão inesperado). "
     "viral_score alto = reação forte, frase de efeito, gameplay insano, humor. "
     "titulo curto <70 chars sem clickbait mentiroso. descricao 1-2 frases + crédito ao streamer. "
     "hashtags max 5 sem #."
@@ -51,6 +55,11 @@ def parse_gemini_json(text: str) -> dict:
     data = json.loads(m.group(0))
     viral = float(data.get("viral_score", 50))
     data["viral_score"] = max(0.0, min(100.0, viral))
+    for k in ("hook", "payoff", "densidade"):
+        try:
+            data[k] = max(0.0, min(100.0, float(data.get(k, 50))))
+        except (TypeError, ValueError):
+            data[k] = 50.0
     data.setdefault("motivo", "")
     data.setdefault("titulo", "")
     data.setdefault("descricao", "")
@@ -126,6 +135,7 @@ def score_candidatos(
         # Crédito garantido mesmo em degradado (QC exige @ ou link na legenda)
         fb_cred = f"Créditos: @{streamer}" + (f" — {c.get('url')}" if c.get("url") else "")
         descricao, hashtags, motivo = fb_cred, [], ""
+        rubrica = {"hook": 50.0, "payoff": 50.0, "densidade": 50.0}
         if fn is not None:
             try:
                 if i > 0 and gemini_fn is None:
@@ -136,6 +146,7 @@ def score_candidatos(
                 descricao = str(data.get("descricao") or "")
                 hashtags = list(data.get("hashtags") or [])
                 motivo = str(data.get("motivo") or "")
+                rubrica = {k: data.get(k, 50) for k in ("hook", "payoff", "densidade")}
                 # Normaliza crédito (QC bloqueia sem @streamer ou link na legenda)
                 _txt = f"{titulo} {descricao}"
                 if streamer and "@" not in _txt and "twitch.tv" not in _txt and "youtube.com" not in _txt:
@@ -152,6 +163,7 @@ def score_candidatos(
             **c, "cut_id": f"{c.get('video_id')}-{float(c.get('t_inicio', 0)):.0f}",
             "viral": viral, "score_final": final, "titulo": titulo,
             "descricao": descricao, "hashtags": hashtags, "motivo": motivo,
+            "rubrica": rubrica,
             "renorm": chat is None,
         })
     # Restante fora do pool Gemini: score local puro (sem custo) p/ auditoria.
@@ -168,6 +180,7 @@ def score_candidatos(
             "viral": None, "score_final": final, "titulo": fallback_title(streamer),
             "descricao": f"Créditos: @{streamer}" + (f" — {c.get('url')}" if c.get("url") else ""),
             "hashtags": [], "motivo": "fora do pool Gemini (top-8 quota)",
+            "rubrica": {"hook": 50.0, "payoff": 50.0, "densidade": 50.0},
             "renorm": chat is None,
         })
     scored.sort(key=lambda s: s["score_final"], reverse=True)
