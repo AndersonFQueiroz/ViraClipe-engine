@@ -62,13 +62,15 @@ def cutter_day(day: str, factory_data: Path, db_path: Path, runner=subprocess.ru
                                out, runner=runner)
                 if not ok:
                     continue
+            _chat = s.get("chat", 0)
+            _chat = 0.0 if _chat is None else float(_chat)
             con.execute(
                 "INSERT OR REPLACE INTO cortes(cut_id, video_id, streamer, t_inicio, duracao,"
                 " chat, audio, viral, score_final, titulo, status)"
                 " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (cut_id, vid, str(s.get("streamer") or ""),
                  float(s.get("t_inicio", 0)), float(s.get("duracao", 30)),
-                 float(s.get("chat", 0)), float(s.get("audio", 0)),
+                 _chat, float(s.get("audio", 0)),
                  s.get("viral"), float(s.get("score_final", 0)),
                  str(s.get("titulo") or ""), "cut"),
             )

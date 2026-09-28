@@ -1,6 +1,7 @@
 """Regressão: QC valida final-*.mp4 (arquivo postado), não só corte-*.mp4."""
 
 import json
+from pathlib import Path
 
 from factory import db as _db
 from factory import qc as Q
@@ -56,6 +57,38 @@ def test_qc_ignora_cut_em_progresso(tmp_path):
     con.commit()
     assert _db.is_cut_duplicate(con, "v9", 10.5) is True
     con.close()
+
+
+def test_cutter_aceita_chat_none(tmp_path):
+    """Candidatos sem replay têm chat=None — cutter não pode quebrar."""
+    from factory import cutter as C2
+    from factory import db as _db2
+
+    dbp = tmp_path / "t.db"
+    _db2.init_db(dbp)
+    day_dir = tmp_path / "f" / "2026-09-28"
+    day_dir.mkdir(parents=True)
+    mp4 = day_dir / "v.mp4"
+    mp4.write_bytes(b"x" * 200_000)
+    (day_dir / "scored.json").write_text(__import__("json").dumps([{
+        "cut_id": "v-10", "video_id": "v", "streamer": "s", "t_inicio": 10.0,
+        "duracao": 30.0, "chat": None, "audio": 90.0, "viral": 80.0,
+        "score_final": 85.0, "titulo": "T",
+    }]), encoding="utf-8")
+    (day_dir / "ingest.json").write_text(__import__("json").dumps(
+        [{"video_id": "v", "mp4": str(mp4)}]), encoding="utf-8")
+
+    def fake_runner(cmd, capture_output=True, text=True, timeout=900):
+        out = Path(cmd[-1])
+        out.write_bytes(b"x" * 200_000)
+
+        class R:
+            returncode = 0
+        return R()
+
+    from pathlib import Path as _P
+    out = C2.cutter_day("2026-09-28", tmp_path / "f", dbp, runner=fake_runner)
+    assert len(out) == 1 and out[0]["cut_id"] == "v-10"
 
 
 def test_qc_sem_nenhum_mp4_falha(tmp_path):

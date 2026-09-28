@@ -167,7 +167,7 @@ def score_candidatos(
             **c, "cut_id": f"{c.get('video_id')}-{float(c.get('t_inicio', 0)):.0f}",
             "viral": None, "score_final": final, "titulo": fallback_title(streamer),
             "descricao": f"Créditos: @{streamer}" + (f" — {c.get('url')}" if c.get("url") else ""),
-            "hashtags": [], "motivo": "fora do pool Gemini (quota)",
+            "hashtags": [], "motivo": "fora do pool Gemini (top-8 quota)",
             "renorm": chat is None,
         })
     scored.sort(key=lambda s: s["score_final"], reverse=True)
