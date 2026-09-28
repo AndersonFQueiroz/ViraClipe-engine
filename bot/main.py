@@ -1,15 +1,15 @@
-"""Bot Telegram leve do ViraClipe: só monitor + takedown. Sem aprovação.
+"""Bot Telegram do ViraClipe: monitor + takedown + GATE de aprovação.
 
 Comandos:
   /start — ajuda
   /status — whitelist/denylist/vods/top cortes
   /fila [AAAA-MM-DD] — vods/scored/pack/buffer do dia
+  /pendentes [AAAA-MM-DD] — reenvia prévias com botões ✅/❌ (só dono)
   /remover <cut_id> [motivo] — marca corte como removido + streamer na denylist (só dono)
 
-Só TELEGRAM_OWNER_CHAT_ID pode usar /remover. Sem TELEGRAM_BOT_TOKEN o
-processo explica e sai com exit 3 (não é erro fatal no Termux).
-Helpers puros (parse_remover_args/apply_remover/status_text/fila_text)
-não importam a lib do Telegram: testáveis sem rede.
+Botões ✅/❌ nas prévias: aprovar agenda SÓ aquele corte no Buffer;
+descartar marca rejeitado (nunca posta). Só OWNER decide.
+Helpers puros não importam a lib do Telegram: testáveis sem rede.
 """
 from __future__ import annotations
 
@@ -100,10 +100,16 @@ def run() -> int:
         print("SEM TELEGRAM_BOT_TOKEN — bot não iniciado (exit 3).")
         return 3
     from telegram import Update  # import tardio: helpers testam sem a lib
-    from telegram.ext import Application, CommandHandler, ContextTypes
+    from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
+                              ContextTypes)
+
+    from factory import aprova as _ap
+
+    def _is_owner(u: Update) -> bool:
+        return not owner or str(u.effective_chat.id) == str(owner)
 
     async def _start(u: Update, c: ContextTypes.DEFAULT_TYPE):
-        await u.message.reply_text("ViraClipe monitor.\n/status\n/fila [AAAA-MM-DD]\n/remover <cut_id> [motivo] (só dono)")
+        await u.message.reply_text("ViraClipe monitor.\n/status\n/fila [AAAA-MM-DD]\n/pendentes [AAAA-MM-DD]\n/remover <cut_id> [motivo] (só dono)")
 
     async def _status(u: Update, c: ContextTypes.DEFAULT_TYPE):
         await u.message.reply_text(status_text())
@@ -128,10 +134,40 @@ def run() -> int:
             f"removido {res['cut_id']} (@{res['streamer']} na denylist)."
             " Apague o post no Buffer/painel — o bot não deleta post publicado.")
 
+    async def _pendentes(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        if not _is_owner(u):
+            await u.message.reply_text("apenas o dono aprova.")
+            return
+        day = (c.args[0] if c.args else _dt.date.today().isoformat())
+        res = _ap.enviar_previews(day, FACTORY_DATA, DB_PATH, token, str(u.effective_chat.id))
+        await u.message.reply_text(f"prévias: {res}")
+
+    async def _tap(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        q = u.callback_query
+        await q.answer()
+        if not _is_owner(u):
+            await q.edit_message_caption(caption="apenas o dono aprova.")
+            return
+        data = (q.data or "")
+        if data.startswith("ap:"):
+            day = _ap.find_day_of_cut(FACTORY_DATA, data[3:]) or _dt.date.today().isoformat()
+            cid = data[3:]
+            res = _ap.aprovar(day, FACTORY_DATA, DB_PATH, cid)
+            if res.get("ok"):
+                await q.edit_message_caption(caption=f"✅ AGENDADO {cid} (slot {res.get('key')}).")
+            else:
+                await q.edit_message_caption(caption=f"⚠️ {res.get('error', 'falha')}")
+        elif data.startswith("rj:"):
+            cid = data[3:]
+            _ap.rejeitar(DB_PATH, cid)
+            await q.edit_message_caption(caption=f"❌ descartado {cid} (nunca posta).")
+
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", _start))
     app.add_handler(CommandHandler("status", _status))
     app.add_handler(CommandHandler("fila", _fila))
+    app.add_handler(CommandHandler("pendentes", _pendentes))
+    app.add_handler(CallbackQueryHandler(_tap))
     app.add_handler(CommandHandler("remover", _remover))
     print("Bot ViraClipe no ar (polling).")
     app.run_polling()
