@@ -14,11 +14,12 @@ SAMPLE_FPS = 1.0
 DETECT_WIDTH = 640
 TOP_W, TOP_H = 720, 720
 BOT_W, BOT_H = 720, 560
-# Crop APERTADO no rosto (só a câmera, sem repetir o jogo): altura = 2.0x a
-# altura mediana do rosto, limitada a [200, 360]px no espaço 1280x720, com
-# proporção exata do painel (720:560) p/ não esticar a cara.
-FACE_MULT = 2.0
-FACE_MIN, FACE_MAX = 200, 360
+# Crop APERTADO no rosto (só a câmera, sem repetir o jogo): altura = 1.8x a
+# altura mediana do rosto, limitada a [180, 320]px no espaço 1280x720, com
+# proporção exata do painel (720:560) p/ não esticar a cara. Rosto perto da
+# borda da facecam = box menor vaza menos jogo.
+FACE_MULT = 1.8
+FACE_MIN, FACE_MAX = 180, 320
 
 
 def _cascade():

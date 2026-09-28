@@ -5,11 +5,11 @@ from factory import reframe as RF
 
 
 def test_median_box_clamp_par():
-    # rosto mediano 80px -> h=200 (mínimo), w=200*720/560=257.1->256 (par)
+    # rosto mediano 80px -> h=180 (mínimo), w=180*720/560=231.4->230 (par)
     box = RF.median_box([(100.0, 100.0, 80.0), (110.0, 120.0, 90.0), (105.0, 200.0, 70.0)])
     assert box is not None
     x, y, w, h = box
-    assert (w, h) == (256, 200)
+    assert (w, h) == (230, 180)
     assert x % 2 == 0 and y % 2 == 0
     assert 0 <= x <= 1280 - w and 0 <= y <= 720 - h
     # mediana x=105 -> 105-154 <0 -> clamp 0
@@ -17,11 +17,11 @@ def test_median_box_clamp_par():
 
 
 def test_median_box_rosto_grande_limita():
-    # rosto mediano 300px -> 600 -> clamp no máximo 360
+    # rosto mediano 300px -> 540 -> clamp no máximo 320
     box = RF.median_box([(640.0, 360.0, 300.0)])
     assert box is not None
     x, y, w, h = box
-    assert h == 360 and w == 462
+    assert h == 320 and w == 410
     assert x % 2 == 0 and y % 2 == 0
 
 
