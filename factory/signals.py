@@ -26,16 +26,43 @@ def _normalize(values: list[float]) -> list[float]:
     return [100.0 * (v - lo) / (hi - lo) for v in values]
 
 
+# Palavras que indicam reação forte do chat (hype/riso/choque).
+_HYPE_RE = re.compile(
+    r"(pog|poggers|pogu|gg+\b|wp+|clutch|insano|insane|que isso|what|wtf|lol+|"
+    r"k{3,}|hahaha+|kkk+|rsrs+|clip|clipa|lenda|mito|goat|ez\b|amassou|"
+    r"\+1|f\b|rip\b|omegalul|lul+|kekw|monkas|pogchamp|ezclap|gachi|"
+    r"surreal|absurdo|crazy|no way|let'?s go+|vamoo+|boraa+)",
+    re.IGNORECASE,
+)
+
+
 def chat_windows(messages: list[dict], window: float = WINDOW) -> list[dict]:
-    """Bucketiza chat em janelas de `window`s; score = percentil de densidade."""
+    """Bucketiza chat em janelas; score = densidade ponderada (0-100).
+
+    Pondera: volume + usuários únicos + emotes + CAPS + keywords de hype.
+    Spike de gente diferente reagindo vale mais que 1 spammer.
+    """
     if not messages:
         return []
     tmax = max(float(m.get("t") or 0) for m in messages)
     n = max(1, int(tmax // window) + 1)
     counts = [0.0] * n
+    uniques: list[set] = [set() for _ in range(n)]
     for m in messages:
         i = min(n - 1, max(0, int(float(m.get("t") or 0) // window)))
-        counts[i] += 1.0 + 0.5 * float(m.get("emotes") or 0)
+        msg = str(m.get("msg") or "")
+        emotes = float(m.get("emotes") or 0)
+        author = str(m.get("author") or m.get("user") or "")
+        uniques[i].add(author or f"anon-{i}")
+        hype = 1.0 if _HYPE_RE.search(msg) else 0.0
+        caps = sum(1 for c in msg if c.isupper())
+        caps_bonus = min(1.0, caps / 15.0) if len(msg) > 8 else 0.0
+        counts[i] += 1.0 + 0.5 * emotes + 1.5 * hype + 0.5 * caps_bonus
+    # bônus de diversidade: janela com muita gente diferente sobe
+    if uniques:
+        umax = max(len(u) for u in uniques) or 1
+        for i in range(n):
+            counts[i] += 2.0 * (len(uniques[i]) / umax)
     scores = _normalize(counts)
     return [
         {"t_inicio": i * window, "t_fim": (i + 1) * window, "chat": round(s, 1)}

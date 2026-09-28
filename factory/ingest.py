@@ -90,6 +90,25 @@ def download_vod(url: str, out_mp4: Path, runner=subprocess.run, cookies: Path |
     return False
 
 
+# Hashes GQL persistidos da Twitch (chat-downloader 0.2.8 traz valores
+# antigos -> PersistedQueryNotFound/KeyError 'data' em VODs). A Twitch rotaciona
+# periodicamente; se o chat voltar a falhar, atualizar aqui (ver
+# xenova/chat-downloader issue #283 / fork sebastientromp-chat-downloader).
+_TWITCH_GQL_HASHES = {
+    "ChatList_Badges": "838a7e0b47c09cac05f93ff081a9ff4f876b68f7624f0fc465fe30031e372fc2",
+    "StreamMetadata": "b57f9b910f8cd1a4659d894fe7550ccc81ec9052c01e438b290fd66a040b9b93",
+    "VideoMetadata": "45111672eea2e507f8ba44d101a61862f9c56b11dee09a15634cb75cb9b9084d",
+}
+
+
+def _patch_twitch_hashes() -> None:
+    try:
+        from chat_downloader.sites.twitch import TwitchChatDownloader
+        TwitchChatDownloader._OPERATION_HASHES.update(_TWITCH_GQL_HASHES)
+    except Exception:
+        pass
+
+
 def download_chat(url: str, out_chat: Path) -> bool:
     """Chat replay via chat-downloader (free). Falha silenciosa -> []."""
     try:
@@ -97,6 +116,7 @@ def download_chat(url: str, out_chat: Path) -> bool:
     except Exception:
         out_chat.write_text("[]", encoding="utf-8")
         return False
+    _patch_twitch_hashes()
     try:
         msgs = []
         for m in ChatDownloader().get_chat(url, max_messages=20000):
