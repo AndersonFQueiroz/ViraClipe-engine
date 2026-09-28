@@ -77,7 +77,7 @@ def test_legendar_gemini_mock():
                            "duracao": 20.0}, "m", "k", gemini_fn=fake)
     assert leg["titulo"] == "SUSTO ABSURDO"
     assert leg["viral_clip"] == 88.0
-    assert leg["hashtags"] == ["#susto", "alanzoka"][:5]
+    assert leg["hashtags"] == ["susto", "alanzoka"]
     # normaliza crédito (QC exige @ ou link)
     assert "@alguem" in leg["descricao"]
 

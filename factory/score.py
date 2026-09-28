@@ -197,12 +197,17 @@ def score_candidatos(
 
 
 LEGENDA_PROMPT = (
-    "Você cria título/descrição/hashtags PT-BR para um corte viral de live. "
+    "Você legenda cortes pra página de clips na internet BR. "
+    "TOM OBRIGATÓRIO: zoeira leve, gíria de internet "
+    "(kkk, tankou, mito, insano, papo reto, f, calmo, proibido). "
+    "BANIDO tom sério/formal/jornalístico: nada de sincero, história, "
+    "acompanhe, confira, momento, trajetória. Minúsculas liberadas. "
     "Retorne SOMENTE JSON: "
     '{"viral_score":0-100,"motivo":"","titulo":"","descricao":"","hashtags":[]}. '
     "Você recebe o TÍTULO ORIGINAL do clip (inspiração — NÃO copie, crie um título "
     "próprio curto <70 chars, sem clickbait mentiroso) e as VIEWS que ele fez na Twitch. "
-    "descricao: 1-2 frases com energia + crédito '@streamer na Twitch' + link do clip. "
+    "titulo: UMA frase no tom da internet. "
+    "descricao: 1-2 frases no mesmo tom + crédito '@streamer na Twitch' + link do clip. "
     "hashtags: max 5 sem #, PT-BR (jogo, streamer, momento). "
     "viral_score: chance de performar no TikTok/Reels/Shorts BR."
 )
@@ -250,8 +255,15 @@ def legendar_clip(clip: dict, model: str, api_key: str, gemini_fn=None) -> dict:
         _txt = f"{out['titulo']} {desc}"
         if streamer and "@" not in _txt and "twitch.tv" not in _txt and "youtube.com" not in _txt:
             desc = (desc + f" Créditos: @{streamer}").strip()
+        # Garante o link REAL do clip (modelo às vezes inventa twitch.tv genérico)
+        url = str(clip.get("url") or "")
+        if url and url not in desc:
+            desc = (desc + f" 📺 Clip: {url}").strip()
         out["descricao"] = desc or fb["descricao"]
-        out["hashtags"] = list(data.get("hashtags") or [])[:5]
+        tags = data.get("hashtags") or []
+        if isinstance(tags, str):
+            tags = [tags]
+        out["hashtags"] = [str(t).lstrip("#")[:30] for t in tags][:5]
         out["viral_clip"] = max(0.0, min(100.0, float(data.get("viral_score", 50))))
         out["motivo"] = str(data.get("motivo") or "")
         return out
