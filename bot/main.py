@@ -183,7 +183,9 @@ def run() -> int:
             return
         res = _ap.definir_titulo(FACTORY_DATA, DB_PATH, m.group(1), u.message.text)
         if res.get("ok"):
-            await u.message.reply_text(f"✏️ título ok: {res['titulo']}\nToque ✅ p/ entrar na fila.")
+            await u.message.reply_text(
+                f"✏️ título: {res['titulo']}\n📝 descrição: {res.get('descricao', '')[:300]}"
+                f"\n\nToque ✅ na prévia p/ entrar na fila.")
         else:
             await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
 

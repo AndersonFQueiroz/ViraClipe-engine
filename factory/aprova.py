@@ -176,7 +176,15 @@ def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
         con.commit()
     finally:
         con.close()
-    return {"ok": True, "cut_id": cut_id, "titulo": novo_titulo}
+    desc = ""
+    try:
+        for lst in (finais,):
+            for c in lst:
+                if str(c.get("cut_id")) == cut_id:
+                    desc = str(c.get("descricao") or "")
+    except Exception:
+        pass
+    return {"ok": True, "cut_id": cut_id, "titulo": novo_titulo, "descricao": desc}
 
 
 def rejeitar(db_path: Path, cut_id: str, motivo: str = "") -> dict:

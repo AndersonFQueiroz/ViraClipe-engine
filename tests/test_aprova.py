@@ -138,6 +138,7 @@ def test_definir_titulo_usa_base_ia(tmp_path):
     finally:
         _S.legendar_clip = _S_orig
     assert res["ok"] and res["titulo"] == "meu titulo brabo"
+    assert "@s" in res["descricao"]  # resposta mostra a descrição nova
     pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
     assert "meu titulo brabo" in pack["titles"]["c1"]
     assert "@s" in pack["captions"]["c1"]
