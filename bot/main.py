@@ -99,6 +99,13 @@ def run() -> int:
     if not token:
         print("SEM TELEGRAM_BOT_TOKEN — bot não iniciado (exit 3).")
         return 3
+    import fcntl as _fc
+    try:
+        _lock = open("/tmp/viraclipe-bot.lock", "w")
+        _fc.flock(_lock, _fc.LOCK_EX | _fc.LOCK_NB)
+    except OSError:
+        print("Outro bot já está rodando (lock) — saindo p/ não roubar updates.")
+        return 2
     from telegram import Update  # import tardio: helpers testam sem a lib
     from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
                               ContextTypes, MessageHandler, filters)
@@ -172,22 +179,33 @@ def run() -> int:
 
     async def _titulo_reply(u: Update, c: ContextTypes.DEFAULT_TYPE):
         # Responder a prévia com texto = define o título (IA refaz a descrição).
-        if not _is_owner(u) or not u.message or not u.message.text:
-            return
-        rep = u.message.reply_to_message
-        if not rep or not rep.caption:
-            return
-        import re as _re
-        m = _re.search(r"🆔 `([^`]+)`", rep.caption)
-        if not m:
-            return
-        res = _ap.definir_titulo(FACTORY_DATA, DB_PATH, m.group(1), u.message.text)
-        if res.get("ok"):
-            await u.message.reply_text(
-                f"✏️ título: {res['titulo']}\n📝 descrição: {res.get('descricao', '')[:300]}"
-                f"\n\nToque ✅ na prévia p/ entrar na fila.")
-        else:
-            await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
+        try:
+            if not _is_owner(u) or not u.message or not u.message.text:
+                return
+            rep = u.message.reply_to_message
+            if not rep or not rep.caption:
+                return
+            import re as _re
+            m = _re.search(r"🆔 `([^`]+)`", rep.caption)
+            print(f"titulo-reply: de={u.effective_user.id} cut={m.group(1) if m else '?'} "
+                  f"txt={u.message.text[:40]}", flush=True)
+            if not m:
+                await u.message.reply_text("⚠️ responde direto na PRÉVIA (com o vídeo).")
+                return
+            await u.message.reply_text("✏️ processando título + descrição...")
+            res = _ap.definir_titulo(FACTORY_DATA, DB_PATH, m.group(1), u.message.text)
+            if res.get("ok"):
+                await u.message.reply_text(
+                    f"✏️ título: {res['titulo']}\n📝 descrição: {res.get('descricao', '')[:300]}"
+                    f"\n\nToque ✅ na prévia p/ entrar na fila.")
+            else:
+                await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
+        except Exception as exc:
+            print(f"titulo-reply ERRO: {type(exc).__name__}: {exc}", flush=True)
+            try:
+                await u.message.reply_text(f"⚠️ erro: {type(exc).__name__}")
+            except Exception:
+                pass
 
     async def _daily(ctx: ContextTypes.DEFAULT_TYPE):
         """Cron interno 08h BRT: roda tools/dia.py num thread e avisa o dono."""
