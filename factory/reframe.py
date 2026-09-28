@@ -14,7 +14,11 @@ SAMPLE_FPS = 1.0
 DETECT_WIDTH = 640
 TOP_W, TOP_H = 720, 720
 BOT_W, BOT_H = 720, 560
-FACE_BOX = 560  # lado do crop quadrado no rosto (espaço 1280x720)
+# Crop APERTADO no rosto (só a câmera, sem repetir o jogo): altura = 2.0x a
+# altura mediana do rosto, limitada a [200, 360]px no espaço 1280x720, com
+# proporção exata do painel (720:560) p/ não esticar a cara.
+FACE_MULT = 2.0
+FACE_MIN, FACE_MAX = 200, 360
 
 
 def _cascade():
@@ -81,18 +85,29 @@ def sample_centers(mp4: Path, t_inicio: float, duracao: float,
 
 def median_box(centers: list[tuple[float, float, float]],
                src_w: int = 1280, src_h: int = 720,
-               box: int = FACE_BOX) -> tuple[int, int, int, int] | None:
-    """Caixa quadrada `box` centrada na mediana dos rostos (clamp + par)."""
+               box: int | None = None) -> tuple[int, int, int, int] | None:
+    """Caixa apertada no rosto (proporção do painel, clamp + par).
+
+    Altura = 2.5x a mediana do rosto, clamp [FACE_MIN, FACE_MAX]; box fixo
+    só em teste legado. Rosto pequeno (facecam longe) = zoom maior.
+    """
     if not centers:
         return None
     xs = sorted(c[0] for c in centers)
     ys = sorted(c[1] for c in centers)
+    ss = sorted(c[2] for c in centers)
     cx, cy = xs[len(xs) // 2], ys[len(ys) // 2]
-    x = min(max(int(cx - box / 2), 0), max(src_w - box, 0))
-    y = min(max(int(cy - box / 2), 0), max(src_h - box, 0))
+    if box is None:
+        box = min(FACE_MAX, max(FACE_MIN, int(ss[len(ss) // 2] * FACE_MULT)))
+    h = min(box, src_h)
+    w = min(int(h * BOT_W / BOT_H), src_w)
+    w -= w % 2
+    h -= h % 2
+    x = min(max(int(cx - w / 2), 0), max(src_w - w, 0))
+    y = min(max(int(cy - h / 2), 0), max(src_h - h, 0))
     x -= x % 2
     y -= y % 2
-    return x, y, box, box
+    return x, y, w, h
 
 
 def find_face_box(mp4: Path, t_inicio: float, duracao: float,
