@@ -50,14 +50,12 @@ def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
         tail = " ".join(f"#{t}" for t in (tags or tags_base[:3]))
         cap = f"{head}\n{body}\n{tail}\n{handle}"
     else:
+        # Regra do dono: sem link/ID em nada — só @ + breve descrição.
         lines = [f"🔥 {titulo}", f"🎮 @{streamer}" if streamer else "", desc]
-        # Clips: sem ID/link — só @ + breve (pedido do dono).
-        if url and not str(corte.get("video_id") or "").startswith("clip:"):
-            lines.append(f"📺 Live original: {url}")
         lines.append(" ".join(f"#{t}" for t in (tags or tags_base)))
         lines.append(handle)
         cap = "\n".join(l for l in lines if l)
-    first = f"Live original aqui: {url}\nCréditos: @{streamer}\nSegue {handle} pra mais!" if url else f"Créditos: @{streamer}"
+    first = f"Créditos: @{streamer}\nSegue {handle} pra mais!"
     return cap, first
 
 
@@ -85,6 +83,6 @@ def build_pack(day_dir: Path, finais: list[dict]) -> Path:
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
         for key, vpath in videos.items():
             z.write(vpath, Path(vpath).name)
-            txt = pack["captions"][key] + "\n" + cta.get("kwai", "") + f"\n\nVOD: {pack['creditos'][key]['url']}"
+            txt = pack["captions"][key] + "\n" + cta.get("kwai", "")
             z.writestr(f"{key}-legenda.txt", txt)
     return day_dir / "pack.json"

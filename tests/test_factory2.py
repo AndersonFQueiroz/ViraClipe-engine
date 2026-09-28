@@ -45,7 +45,7 @@ def test_pack_legendas_e_kwai(tmp_path):
     pack = json.loads(out.read_text(encoding="utf-8"))
     assert "c1" in pack["videos"]
     assert "@alguem" in pack["captions"]["c1"]
-    assert "https://twitch.tv/videos/1" in pack["captions"]["c1"]
+    assert "https://twitch.tv/videos/1" not in pack["captions"]["c1"]  # sem link: só @
     cap_tt, _ = P.caption_for(finais[0], "tiktok")
     assert "#clipe" in cap_tt
     cap_clip, _ = P.caption_for({"cut_id": "clip-X", "video_id": "clip:x",

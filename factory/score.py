@@ -132,8 +132,8 @@ def score_candidatos(
         viral = None
         streamer = str(c.get("streamer") or "")
         titulo = fallback_title(streamer)
-        # Crédito garantido mesmo em degradado (QC exige @ ou link na legenda)
-        fb_cred = f"Créditos: @{streamer}" + (f" — {c.get('url')}" if c.get("url") else "")
+        # Crédito garantido mesmo em degradado (QC exige @ na legenda; sem links)
+        fb_cred = f"Créditos: @{streamer}"
         descricao, hashtags, motivo = fb_cred, [], ""
         rubrica = {"hook": 50.0, "payoff": 50.0, "densidade": 50.0}
         if fn is not None:
@@ -178,7 +178,7 @@ def score_candidatos(
         scored.append({
             **c, "cut_id": f"{c.get('video_id')}-{float(c.get('t_inicio', 0)):.0f}",
             "viral": None, "score_final": final, "titulo": fallback_title(streamer),
-            "descricao": f"Créditos: @{streamer}" + (f" — {c.get('url')}" if c.get("url") else ""),
+            "descricao": f"Créditos: @{streamer}",
             "hashtags": [], "motivo": "fora do pool Gemini (top-8 quota)",
             "rubrica": {"hook": 50.0, "payoff": 50.0, "densidade": 50.0},
             "renorm": chat is None,

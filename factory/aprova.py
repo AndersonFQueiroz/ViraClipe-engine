@@ -185,12 +185,49 @@ def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
         _pack.build_pack(day_dir, finais)
     except Exception as exc:
         return {"ok": False, "error": f"pack falhou: {type(exc).__name__}"}
+    import re as _re2
+    try:
+        for lst in (finais,):
+            for c in lst:
+                if str(c.get("cut_id")) == cut_id:
+                    c["descricao"] = _re2.sub(r"https?://\S+", "",
+                                              str(c.get("descricao") or "")).strip()
+        (day_dir / "finais.json").write_text(
+            json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
+        _pack.build_pack(day_dir, finais)
+    except Exception:
+        pass
     con = _db.connect(db_path)
     try:
         con.execute("UPDATE cortes SET titulo=? WHERE cut_id=?", (novo_titulo, cut_id))
         con.commit()
+        fila_st = None
+        try:
+            row = con.execute("SELECT status FROM fila WHERE cut_id=?", (cut_id,)).fetchone()
+            fila_st = row["status"] if row else None
+            if fila_st == "na_fila":
+                pack_now = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+                for key, cred in (pack_now.get("creditos") or {}).items():
+                    if str((cred or {}).get("cut_id")) == cut_id:
+                        con.execute("UPDATE fila SET titulo=?, caption=?, caption_tt=? WHERE cut_id=?",
+                                    (novo_titulo,
+                                     str((pack_now.get("captions") or {}).get(key) or "")[:2100],
+                                     str((pack_now.get("captions_tt") or {}).get(key) or "")[:2100],
+                                     cut_id))
+                        break
+                con.commit()
+        except Exception:
+            pass
     finally:
         con.close()
+    if fila_st == "agendado":
+        desc_now = ""
+        for c in finais:
+            if str(c.get("cut_id")) == cut_id:
+                desc_now = str(c.get("descricao") or "")
+        return {"ok": True, "cut_id": cut_id, "titulo": novo_titulo,
+                "descricao": desc_now,
+                "aviso": "já agendado no Buffer — título novo vale pros próximos"}
     desc = ""
     try:
         for lst in (finais,):
@@ -363,14 +400,15 @@ def promover_fila(factory_data: Path, db_path: Path, hoje: str = "",
                 con0.close()
             r["dia_alvo"], r["slot"] = nd, ns
             due = due_at(nd, ns)
-        bom = True
+        bom, pids = True, {}
         for svc in _pb.WANT:
             if svc not in chans:
                 continue
             text = (r["caption_tt"] if svc == "tiktok" else r["caption"])[:2100]
             try:
-                (create_fn or _pb.create_post)(token, svc, chans[svc], text, url,
-                                               due, r["titulo"] or f"ViraClipe {r['dia_alvo']}")
+                pids[svc] = (create_fn or _pb.create_post)(
+                    token, svc, chans[svc], text, url,
+                    due, r["titulo"] or f"ViraClipe {r['dia_alvo']}")
             except Exception:
                 bom = False
         con = _db.connect(db_path)
@@ -378,6 +416,10 @@ def promover_fila(factory_data: Path, db_path: Path, hoje: str = "",
             if bom:
                 con.execute("UPDATE fila SET status='agendado' WHERE cut_id=?", (r["cut_id"],))
                 con.execute("UPDATE cortes SET status='agendado' WHERE cut_id=?", (r["cut_id"],))
+                for svc, pid in pids.items():
+                    con.execute(
+                        "INSERT OR REPLACE INTO posts(cut_id, rede, buffer_id, agendado_para)"
+                        " VALUES(?,?,?,?)", (r["cut_id"], svc, pid, due))
                 ok += 1
             else:
                 fail.append(r["cut_id"])
@@ -401,6 +443,7 @@ def registrar_posts(day: str, factory_data: Path, db_path: Path) -> int:
     if not ok_keys:
         return 0
     _db.init_db(db_path)
+    recs = [r for r in buf.get("posts", []) if r.get("id")]
     con = _db.connect(db_path)
     try:
         n = 0
@@ -409,6 +452,13 @@ def registrar_posts(day: str, factory_data: Path, db_path: Path) -> int:
             cid = str(cred.get("cut_id") or "")
             if not cid:
                 continue
+            for r in recs:
+                if r.get("key") == key:
+                    con.execute(
+                        "INSERT OR REPLACE INTO posts(cut_id, rede, buffer_id, agendado_para)"
+                        " VALUES(?,?,?,?)",
+                        (cid, str(r.get("svc") or ""), str(r.get("id") or ""),
+                         str(r.get("due_at") or "")))
             try:
                 slot = int(key[1:]) - 1
             except ValueError:
