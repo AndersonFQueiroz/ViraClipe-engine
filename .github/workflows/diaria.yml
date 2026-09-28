@@ -1,9 +1,9 @@
 name: ViraClipe Diaria (split publico/full)
 
 # PÚBLICO-SAFE: só main + schedule leem Secrets. PR de fork NUNCA recebe secret.
+# CRON DESATIVADO em 28/09: repensando o pipeline de cortes (qualidade > volume).
+# Reativar adicionando bloco schedule abaixo. Manual via workflow_dispatch segue ok.
 on:
-  schedule:
-    - cron: "30 0 * * *" # 21:30 BRT (30min após o último slot, engatilha o dia seguinte)
   workflow_dispatch:
     inputs:
       date:
