@@ -8,4 +8,4 @@ set -a
 [ -f .env ] && source .env
 set +a
 mkdir -p data/logs
-python3 tools/dia.py --max 2 >> "data/logs/cron-$(date +%F).log" 2>&1
+python3 tools/dia.py --max 5 >> "data/logs/cron-$(date +%F).log" 2>&1

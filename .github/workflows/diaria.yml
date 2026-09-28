@@ -89,7 +89,7 @@ jobs:
         run: |
           DAY="${{ inputs.date }}"
           if [ -z "$DAY" ]; then DAY=$(date +%F); fi
-          python3 tools/dia.py --date "$DAY" --max 2 >> "data/logs/cron-$DAY.log" 2>&1 || echo "exit=$?"
+          python3 tools/dia.py --date "$DAY" --max 5 >> "data/logs/cron-$DAY.log" 2>&1 || echo "exit=$?"
       - name: Upload logs/pack (1 dia)
         if: always()
         uses: actions/upload-artifact@v4

@@ -171,7 +171,7 @@ def run() -> int:
 
         def _run():
             try:
-                r = _sp.run(["python3", "tools/dia.py", "--max", "2"],
+                r = _sp.run(["python3", "tools/dia.py", "--max", "5"],
                             capture_output=True, text=True, timeout=7200)
                 tail = (r.stdout or "")[-1200:]
                 status = "ok" if r.returncode == 0 else f"exit {r.returncode}"

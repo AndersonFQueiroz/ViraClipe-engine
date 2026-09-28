@@ -122,7 +122,7 @@ def fonte_b(day: str, max_vods: int = 1) -> list[dict]:
 
 
 def main(argv: list[str]) -> int:
-    day, max_n, fonte = "", 2, "auto"
+    day, max_n, fonte = "", 5, "auto"
     if "--date" in argv:
         day = argv[argv.index("--date") + 1]
     if "--max" in argv:
