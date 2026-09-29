@@ -106,7 +106,8 @@ def register_clip(con, clip: dict) -> None:
 def discover_clips(day: str, db_path: Path, factory_data: Path,
                    max_clips_dia: int = 5, min_views: int = 10,
                    min_dur: float = MIN_DUR, max_dur: float = MAX_DUR,
-                   fetch_fn=None, registrar: bool = True) -> list[dict]:
+                   fetch_fn=None, registrar: bool = True,
+                   max_por_streamer: int = 2) -> list[dict]:
     """Roda sozinho: whitelist Twitch -> clips novos -> data/<dia>/clips.json.
 
     Filtra duração/views/dedup, ordena por views, registra SÓ os escolhidos
@@ -135,7 +136,17 @@ def discover_clips(day: str, db_path: Path, factory_data: Path,
                     continue
                 novos.append(c)
         novos.sort(key=lambda c: int(c.get("views") or 0), reverse=True)
-        escolhidos = novos[:max(0, max_clips_dia)]
+        # Diversifica: teto por streamer (ninguém engole os 5 slots sozinho).
+        escolhidos = []
+        por_streamer: dict[str, int] = {}
+        for c in novos:
+            if len(escolhidos) >= max(0, max_clips_dia):
+                break
+            s = str(c.get("streamer") or "?")
+            if por_streamer.get(s, 0) >= max(1, max_por_streamer):
+                continue
+            por_streamer[s] = por_streamer.get(s, 0) + 1
+            escolhidos.append(c)
         # Só os escolhidos viram "vistos": o resto do backlog sobrevive
         # para os próximos dias; o escolhido nunca mais volta.
         # registrar=False: marcação fica p/ depois do corte OK (não queima

@@ -121,10 +121,31 @@ def run() -> int:
             return True
         return False
 
+    HELP_TXT = (
+        "🤖 *Como usar*\n\n"
+        "📺 *Prévias* (chegam sozinhas):\n"
+        "• ✅ = entra na fila (hoje ou próximo dia livre)\n"
+        "• ❌ = descarta (nunca posta)\n"
+        "• ↩️ responde a prévia com texto = *título seu* (IA refaz a descrição)\n"
+        "• ↩️ responde com `d:` + texto = *descrição sua* (sem IA)\n\n"
+        "📋 *Comandos:*\n"
+        "• /lista — aprovados (dia/hora) + 🎬 p/ rever o vídeo\n"
+        "• /pendentes \\[data\\] — reenvia prévias aguardando\n"
+        "• /fila \\[data\\] — arquivos do dia\n"
+        "• /status — resumo banco/top cortes\n"
+        "• /remover \\<cut_id\\> \\[motivo\\] — remove + denylist\n\n"
+        "⏰ Automático 08h: clips postam sozinhos (5/dia 9/12/15/18/21h)."
+    )
+
     async def _start(u: Update, c: ContextTypes.DEFAULT_TYPE):
         if await _negado(u):
             return
-        await u.message.reply_text("ViraClipe monitor.\n/status\n/fila [AAAA-MM-DD]\n/pendentes [AAAA-MM-DD]\n/lista (aprovados + 🎬 rever)\n/remover <cut_id> [motivo] (só dono)\n↩️ responder prévia: texto = título seu, `d:` + texto = descrição sua")
+        await u.message.reply_text(HELP_TXT, parse_mode="Markdown")
+
+    async def _help(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        if await _negado(u):
+            return
+        await u.message.reply_text(HELP_TXT, parse_mode="Markdown")
 
     async def _status(u: Update, c: ContextTypes.DEFAULT_TYPE):
         if await _negado(u):
@@ -280,6 +301,8 @@ def run() -> int:
         except Exception as exc:
             print(f"cron interno off ({type(exc).__name__})")
     app.add_handler(CommandHandler("start", _start))
+    app.add_handler(CommandHandler("help", _help))
+    app.add_handler(CommandHandler("ajuda", _help))
     app.add_handler(CommandHandler("status", _status))
     app.add_handler(CommandHandler("fila", _fila))
     async def _lista(u: Update, c: ContextTypes.DEFAULT_TYPE):

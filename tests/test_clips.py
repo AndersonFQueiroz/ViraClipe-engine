@@ -82,6 +82,32 @@ def test_legendar_gemini_mock():
     assert "@alguem" in leg["descricao"]
 
 
+def test_diversifica_teto_por_streamer(tmp_path, monkeypatch):
+    import datetime as _dt
+    monkeypatch.setenv("TWITCH_CLIENT_ID", "id")
+    monkeypatch.setenv("TWITCH_CLIENT_SECRET", "sec")
+    from factory import clips as C, db as _db
+
+    def _fake(h, *a, **k):
+        base = 1000 if h == "gigante" else 100
+        return [{"clip_id": f"{h}-{i}", "streamer": h, "url": "u",
+                 "titulo_clip": "t", "duracao": 30.0, "views": base - i,
+                 "created_at": "", "vod_id": f"v-{h}-{i}", "vod_offset": 100.0 * i}
+                for i in range(4)]
+
+    monkeypatch.setattr(C, "fetch_clips", _fake)
+    monkeypatch.setattr(C._disc, "load_whitelist",
+                        lambda db: [{"handle": "gigante", "plataforma": "twitch"},
+                                    {"handle": "pequeno", "plataforma": "twitch"}])
+    dbp = tmp_path / "t.db"
+    out = C.discover_clips("2026-09-28", dbp, tmp_path, max_clips_dia=5,
+                           min_views=10, registrar=False)
+    streams = [c["streamer"] for c in out]
+    assert streams.count("gigante") == 2  # teto, mesmo com views maiores
+    assert streams.count("pequeno") == 2
+    assert len(out) == 4  # 2+2 (teto por streamer)
+
+
 def test_download_clip_mock(tmp_path):
     class R:
         returncode = 0
