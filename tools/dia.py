@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import DB_PATH, FACTORY_DATA
-from factory import (aprova, clips, cutter, discovery, ingest,
+from factory import (aprova, clips, cutter, db as _db, discovery, ingest,
                      pack_redes, pack_telegram, post_buffer, qc, render,
                      score, signals, transcribe)
 
@@ -56,9 +56,28 @@ def _finalizar_gate(day: str, finais: list[dict]) -> int:
     return 0 if res.get("ok") else 1
 
 
+def _slots_livres(day: str) -> list[int]:
+    _db.init_db(DB_PATH)
+    con = _db.connect(DB_PATH)
+    try:
+        usados = {r["slot"] for r in con.execute(
+            "SELECT slot FROM fila WHERE dia_alvo=? AND status IN ('na_fila','agendado')",
+            (day,)).fetchall()}
+    finally:
+        con.close()
+    return [s for s in range(5) if s not in usados]
+
+
 def fonte_a(day: str, max_n: int) -> list[dict]:
     log("fonte A: clips da comunidade...")
-    return clips.process_clips_day(day, DB_PATH, FACTORY_DATA, max_n=max_n)
+    livres = _slots_livres(day)[:max(0, max_n)]
+    if not livres:
+        log("fonte A: sem slot livre hoje.")
+        return []
+    keys = [f"c{s + 1}" for s in livres]
+    log(f"fonte A: slots livres {livres} -> keys {keys}.")
+    return clips.process_clips_day(day, DB_PATH, FACTORY_DATA,
+                                   max_n=len(livres), keys=keys)
 
 
 def fonte_b(day: str, max_vods: int = 1) -> list[dict]:

@@ -12,10 +12,15 @@ def _load_dia(monkeypatch, tmp_path):
         if m == "tools.dia" or m.startswith("tools.dia."):
             del sys.modules[m]
     import importlib
+    from pathlib import Path
     tools_pkg = types.ModuleType("tools")
     tools_pkg.__path__ = ["/root/linux/projetos/ViraClipe/tools"]
     sys.modules["tools"] = tools_pkg
-    return importlib.import_module("tools.dia")
+    dia = importlib.import_module("tools.dia")
+    # settings pode já estar importado c/ paths reais: sobrescreve no módulo
+    dia.DB_PATH = Path(tmp_path) / "t.db"
+    dia.FACTORY_DATA = Path(tmp_path) / "f"
+    return dia
 
 
 def test_fonte_a_autoposta_sem_botao(tmp_path, monkeypatch):

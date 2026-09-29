@@ -225,7 +225,7 @@ def process_clips_day(day: str, db_path: Path, factory_data: Path,
                       max_n: int = 2, min_views: int = 10,
                       runner=subprocess.run,
                       model: str = "gemini-3.5-flash-lite", api_key: str = "",
-                      gemini_fn=None) -> list[dict]:
+                      gemini_fn=None, keys: list[str] | None = None) -> list[dict]:
     """Fonte A fim-a-fim até o pack: clips.json -> download -> split+marca.
 
     Retorna finais (finais.json + pack.json prontos p/ QC/telegram).
@@ -267,7 +267,7 @@ def process_clips_day(day: str, db_path: Path, factory_data: Path,
     cortes = _cutter.cutter_day(day, factory_data, db_path, runner=runner)
     finais = _render.render_day(day, factory_data, runner=runner)
     if finais:
-        _pack.build_pack(day_dir, finais)
+        _pack.build_pack(day_dir, finais, keys=keys)
         mark_clips_usados(db_path, ok_clips)
         print(f"clips: {len(finais)} final(is) + pack pronto.")
     return finais

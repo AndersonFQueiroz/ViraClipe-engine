@@ -59,10 +59,14 @@ def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
     return cap, first
 
 
-def build_pack(day_dir: Path, finais: list[dict]) -> Path:
+def build_pack(day_dir: Path, finais: list[dict],
+               keys: list[str] | None = None) -> Path:
+    """Monta pack.json. keys força chaves (slots livres); default c1..c5."""
     captions, firsts, titles, videos, captions_tt = {}, {}, {}, {}, {}
-    for i, c in enumerate(finais[:5], 1):
-        key = f"c{i}"
+    want = keys or [f"c{i}" for i in range(1, 6)]
+    for key, c in zip(want, finais[:5]):
+        if not key:
+            continue
         cap, first = caption_for(c, "instagram")
         cap_tt, _ = caption_for(c, "tiktok")
         captions[key], firsts[key], captions_tt[key] = cap, first, cap_tt
