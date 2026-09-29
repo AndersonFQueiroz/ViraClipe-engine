@@ -110,7 +110,8 @@ def test_enfileirar_e_promover(tmp_path, monkeypatch):
     ch = lambda t: {"instagram": "i", "tiktok": "t", "youtube": "y"}
     feitas = []
     cr = lambda *a, **k: feitas.append(a[1]) or "p1"
-    out = A.promover_fila(fac, dbp, "2026-09-28", channels_fn=ch, create_fn=cr, uploader=up)
+    out = A.promover_fila(fac, dbp, _dt.date.today().isoformat(),
+                          channels_fn=ch, create_fn=cr, uploader=up)
     assert out == {"ok": True, "agendados": 1, "falhas": []}
     assert feitas == ["instagram", "tiktok", "youtube"]
     con = A._db.connect(dbp)
@@ -177,6 +178,38 @@ def test_definir_titulo_vod_regen_descricao(tmp_path, monkeypatch):
             "creditos": {"c1": {"cut_id": "twitch:9-100"}}}), encoding="utf-8")
     res = A.definir_titulo(fac, dbp, "twitch:9-100", "susto brabo")
     assert res["ok"] and res["descricao"] == "@s susto"
+
+
+def test_definir_descricao_e_fila_sync(tmp_path):
+    dbp, fac = _setup(tmp_path)
+    day_dir = fac / "2026-09-28"
+    (day_dir / "real.mp4").write_bytes(b"x" * 200_000)
+    for name in ("scored.json", "finais.json"):
+        (day_dir / name).write_text(
+            __import__("json").dumps([{"cut_id": "clip-A", "streamer": "s",
+                                       "titulo": "T", "descricao": "velha",
+                                       "hashtags": [], "mp4": str(day_dir / "real.mp4")}]), encoding="utf-8")
+    res = A.definir_descricao(fac, dbp, "clip-A", "d: minha desc")
+    assert res["ok"] and res["descricao"] == "minha desc"
+    pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+    assert "minha desc" in pack["captions"]["c1"]
+    # vazia recusa
+    assert not A.definir_descricao(fac, dbp, "clip-A", "  ")["ok"]
+
+
+def test_listar_fila(tmp_path):
+    dbp, fac = _setup(tmp_path)
+    import datetime as _dt
+    hoje = _dt.date.today().isoformat()
+    con = A._db.connect(dbp)
+    con.execute("INSERT INTO fila(cut_id, titulo, dia_alvo, slot, status) VALUES(?,?,?,?,?)",
+                ("clip-A", "T", hoje, 0, "na_fila"))
+    con.execute("INSERT INTO fila(cut_id, titulo, dia_alvo, slot, status) VALUES(?,?,?,?,?)",
+                ("clip-B", "T2", "2000-01-01", 0, "agendado"))
+    con.commit()
+    con.close()
+    rows = A.listar_fila(dbp)
+    assert [r["cut_id"] for r in rows] == ["clip-A"]
 
 
 def test_find_day_e_marcar(tmp_path):

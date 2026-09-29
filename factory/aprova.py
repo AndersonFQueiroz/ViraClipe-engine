@@ -239,6 +239,69 @@ def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
     return {"ok": True, "cut_id": cut_id, "titulo": novo_titulo, "descricao": desc}
 
 
+def definir_descricao(factory_data: Path, db_path: Path, cut_id: str,
+                      nova_desc: str) -> dict:
+    """Descrição escrita pelo dono (via `d:`). Vale p/ fila; agendado avisa."""
+    from . import pack_redes as _pack
+
+    nova_desc = (nova_desc or "").strip()
+    if nova_desc.lower().startswith("d:"):
+        nova_desc = nova_desc[2:].strip()
+    nova_desc = nova_desc[:300]
+    if not nova_desc:
+        return {"ok": False, "error": "descrição vazia"}
+    day = find_day_of_cut(factory_data, cut_id)
+    if not day:
+        return {"ok": False, "error": f"cut {cut_id} fora do pack"}
+    day_dir = factory_data / day
+    try:
+        scored = json.loads((day_dir / "scored.json").read_text(encoding="utf-8"))
+        finais = json.loads((day_dir / "finais.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {"ok": False, "error": "scored/finais ilegíveis"}
+    achou = False
+    for lst in (scored, finais):
+        for c in lst:
+            if str(c.get("cut_id")) == cut_id:
+                c["descricao"] = nova_desc
+                achou = True
+    if not achou:
+        return {"ok": False, "error": f"cut {cut_id} não está no dia {day}"}
+    try:
+        (day_dir / "scored.json").write_text(
+            json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
+        (day_dir / "finais.json").write_text(
+            json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
+        pack = _pack.build_pack(day_dir, finais)
+        _ = pack
+    except Exception as exc:
+        return {"ok": False, "error": f"pack falhou: {type(exc).__name__}"}
+    con = _db.connect(db_path)
+    try:
+        fila_st = None
+        try:
+            row = con.execute("SELECT status FROM fila WHERE cut_id=?", (cut_id,)).fetchone()
+            fila_st = row["status"] if row else None
+            if fila_st == "na_fila":
+                pack_now = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+                for key, cred in (pack_now.get("creditos") or {}).items():
+                    if str((cred or {}).get("cut_id")) == cut_id:
+                        con.execute("UPDATE fila SET caption=?, caption_tt=? WHERE cut_id=?",
+                                    (str((pack_now.get("captions") or {}).get(key) or "")[:2100],
+                                     str((pack_now.get("captions_tt") or {}).get(key) or "")[:2100],
+                                     cut_id))
+                        break
+                con.commit()
+        except Exception:
+            pass
+    finally:
+        con.close()
+    out = {"ok": True, "cut_id": cut_id, "descricao": nova_desc}
+    if fila_st == "agendado":
+        out["aviso"] = "já agendado no Buffer — descrição nova vale pros próximos"
+    return out
+
+
 def rejeitar(db_path: Path, cut_id: str, motivo: str = "") -> dict:
     con = _db.connect(db_path)
     try:
@@ -483,9 +546,53 @@ def preview_caption(corte: dict) -> str:
     titulo = str(corte.get("titulo") or "sem título")[:90]
     streamer = str(corte.get("streamer") or "?")
     views = corte.get("chat", "")
-    return (f"🔍 PRÉVIA — ✅ fila, ❌ descarta, ↩️ responda p/ dar o título\n"
+    return (f"🔍 PRÉVIA — ✅ fila, ❌ descarta\n"
+            f"↩️ responda c/ título | `d:` + texto p/ descrição\n"
             f"📌 {titulo}\n🎮 @{streamer} | sinal {views}\n"
             f"🆔 `{corte.get('cut_id')}`")
+
+
+def _post_preview(s, api: str, chat: str, f: dict) -> dict:
+    """Envia 1 prévia com botões. Retorna o JSON do Telegram."""
+    cid = str(f.get("cut_id"))
+    kb = {"inline_keyboard": [[
+        {"text": "✅ Aprovar", "callback_data": f"ap:{cid}"},
+        {"text": "❌ Descartar", "callback_data": f"rj:{cid}"},
+    ]]}
+    with open(f["mp4"], "rb") as fh:
+        def _do(_fh=fh):
+            r = s.post(f"{api}/sendVideo",
+                       data={"chat_id": chat, "caption": preview_caption(f),
+                             "parse_mode": "Markdown",
+                             "reply_markup": json.dumps(kb)},
+                       files={"video": (Path(f["mp4"]).name, _fh, "video/mp4")},
+                       timeout=180)
+            r.raise_for_status()
+            return r.json()
+        return _net.call(_do)
+
+
+def _registrar_mapa(factory_data: Path, day: str, resps: list[tuple[str, dict]]) -> None:
+    mapa = {}
+    for cid, resp in resps:
+        try:
+            fid = (((resp.get("result") or {}).get("video") or {})
+                   .get("file_unique_id") or "")
+            if fid:
+                mapa[fid] = cid
+        except Exception:
+            pass
+    if not mapa:
+        return
+    try:
+        mp = factory_data / day
+        prev = json.loads((mp / "preview_map.json").read_text(encoding="utf-8")) \
+            if (mp / "preview_map.json").exists() else {}
+        prev.update(mapa)
+        (mp / "preview_map.json").write_text(
+            json.dumps(prev, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def enviar_previews(day: str, factory_data: Path, db_path: Path,
@@ -498,46 +605,55 @@ def enviar_previews(day: str, factory_data: Path, db_path: Path,
     api = f"https://api.telegram.org/bot{token}"
     s = requests.Session()
     enviados = 0
-    mapa: dict[str, str] = {}
+    resps: list[tuple[str, dict]] = []
     for f in pendentes(day, factory_data, db_path):
         cid = str(f.get("cut_id"))
-        kb = {"inline_keyboard": [[
-            {"text": "✅ Aprovar", "callback_data": f"ap:{cid}"},
-            {"text": "❌ Descartar", "callback_data": f"rj:{cid}"},
-        ]]}
         try:
-            with open(f["mp4"], "rb") as fh:
-                def _do(_fh=fh):
-                    r = s.post(f"{api}/sendVideo",
-                               data={"chat_id": chat, "caption": preview_caption(f),
-                                     "parse_mode": "Markdown",
-                                     "reply_markup": json.dumps(kb)},
-                               files={"video": (Path(f["mp4"]).name, _fh, "video/mp4")},
-                               timeout=180)
-                    r.raise_for_status()
-                    return r.json()
-                resp = _net.call(_do)
-            try:
-                fid = (((resp.get("result") or {}).get("video") or {})
-                       .get("file_unique_id") or "")
-                if fid:
-                    mapa[fid] = cid
-            except Exception:
-                pass
+            resps.append((cid, _post_preview(s, api, chat, f)))
             enviados += 1
         except Exception as exc:
             print(f"aprova: preview falhou {cid} ({type(exc).__name__})")
-    if mapa:
-        try:
-            mp = factory_data / day
-            prev = json.loads((mp / "preview_map.json").read_text(encoding="utf-8")) \
-                if (mp / "preview_map.json").exists() else {}
-            prev.update(mapa)
-            (mp / "preview_map.json").write_text(
-                json.dumps(prev, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
+    _registrar_mapa(factory_data, day, resps)
     return {"ok": True, "enviados": enviados}
+
+
+def reenviar(factory_data: Path, db_path: Path, cut_id: str,
+             token: str = "", chat: str = "") -> dict:
+    """Manda a prévia de novo (perdeu o vídeo? edita melhor). Vale p/ fila tbm."""
+    token = token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat = chat or os.environ.get("TELEGRAM_OWNER_CHAT_ID", "")
+    if not (token and chat):
+        return {"ok": False, "error": "sem TELEGRAM_BOT_TOKEN/OWNER"}
+    day = find_day_of_cut(factory_data, cut_id)
+    if not day:
+        return {"ok": False, "error": f"cut {cut_id} fora do pack"}
+    f = next((x for x in _finais(factory_data / day)
+              if str(x.get("cut_id")) == cut_id), None)
+    if not f or not Path(str(f.get("mp4") or "")).exists():
+        return {"ok": False, "error": f"vídeo de {cut_id} sumiu do disco"}
+    try:
+        resp = _post_preview(requests.Session(),
+                             f"https://api.telegram.org/bot{token}", chat, f)
+        _registrar_mapa(factory_data, day, [(cut_id, resp)])
+        return {"ok": True, "cut_id": cut_id}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:120]}"}
+
+
+def listar_fila(db_path: Path, dias: int = 7) -> list[dict]:
+    """Aprovados na fila (p/ /lista e edição)."""
+    import datetime as _dt
+
+    _db.init_db(db_path)
+    hoje = _dt.date.today().isoformat()
+    con = _db.connect(db_path)
+    try:
+        return [dict(r) for r in con.execute(
+            "SELECT cut_id, titulo, dia_alvo, slot, status FROM fila"
+            " WHERE status IN ('na_fila','agendado') AND dia_alvo>=?"
+            " ORDER BY dia_alvo, slot LIMIT 35", (hoje,)).fetchall()]
+    finally:
+        con.close()
 
 
 def cut_por_titulo(factory_data: Path, titulo: str,

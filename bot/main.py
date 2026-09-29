@@ -115,13 +115,25 @@ def run() -> int:
     def _is_owner(u: Update) -> bool:
         return not owner or str(u.effective_chat.id) == str(owner)
 
+    async def _negado(u: Update) -> bool:
+        if not _is_owner(u):
+            await u.message.reply_text("🤖 bot privado — apenas o dono.")
+            return True
+        return False
+
     async def _start(u: Update, c: ContextTypes.DEFAULT_TYPE):
-        await u.message.reply_text("ViraClipe monitor.\n/status\n/fila [AAAA-MM-DD]\n/pendentes [AAAA-MM-DD]\n/remover <cut_id> [motivo] (só dono)\n↩️ responder prévia com texto = título seu (IA refaz descrição)")
+        if await _negado(u):
+            return
+        await u.message.reply_text("ViraClipe monitor.\n/status\n/fila [AAAA-MM-DD]\n/pendentes [AAAA-MM-DD]\n/lista (aprovados + 🎬 rever)\n/remover <cut_id> [motivo] (só dono)\n↩️ responder prévia: texto = título seu, `d:` + texto = descrição sua")
 
     async def _status(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        if await _negado(u):
+            return
         await u.message.reply_text(status_text())
 
     async def _fila(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        if await _negado(u):
+            return
         day = (c.args[0] if c.args else _dt.date.today().isoformat())
         await u.message.reply_text(fila_text(day))
 
@@ -203,6 +215,19 @@ def run() -> int:
             if not cid:
                 await u.message.reply_text("⚠️ responde direto na PRÉVIA (com o vídeo).")
                 return
+            txt = (u.message.text or "").strip()
+            if txt.lower().startswith("d:"):
+                res = _ap.definir_descricao(FACTORY_DATA, DB_PATH, cid, txt[2:])
+                if res.get("ok"):
+                    msg = f"📝 descrição ok: {res['descricao'][:300]}"
+                    if res.get("aviso"):
+                        msg += f"\n⚠️ {res['aviso']}"
+                    else:
+                        msg += "\nToque ✅ na prévia p/ entrar na fila."
+                    await u.message.reply_text(msg)
+                else:
+                    await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
+                return
             await u.message.reply_text("✏️ processando título + descrição...")
             res = _ap.definir_titulo(FACTORY_DATA, DB_PATH, cid, u.message.text)
             if res.get("ok"):
@@ -257,8 +282,44 @@ def run() -> int:
     app.add_handler(CommandHandler("start", _start))
     app.add_handler(CommandHandler("status", _status))
     app.add_handler(CommandHandler("fila", _fila))
+    async def _lista(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        if not _is_owner(u):
+            await u.message.reply_text("apenas o dono.")
+            return
+        rows = _ap.listar_fila(DB_PATH)
+        if not rows:
+            await u.message.reply_text("fila vazia — aprove alguma prévia com ✅.")
+            return
+        from telegram import InlineKeyboardButton as _B
+        from telegram import InlineKeyboardMarkup as _M
+        lines, kb = [], []
+        for r in rows[:15]:
+            estado = "🕓" if r["status"] == "na_fila" else "📅"
+            dia = str(r["dia_alvo"] or "")[5:]
+            try:
+                from config.settings import SLOTS_UTC as _SL
+                h, m = _SL[int(r["slot"]) % len(_SL)]
+            except Exception:
+                h, m = 12, 0
+            lines.append(f"{estado} {dia} {h:02d}h{m:02d} — {str(r['titulo'])[:45]}")
+            kb.append([_B(f"🎬 ver: {str(r['titulo'])[:25]}",
+                          callback_data=f"ver:{r['cut_id']}"[:64])])
+        await u.message.reply_text("\n".join(lines), reply_markup=_M(kb))
+
+    async def _ver(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        q = u.callback_query
+        await q.answer()
+        if not _is_owner(u):
+            return
+        cid = (q.data or "")[4:]
+        res = _ap.reenviar(FACTORY_DATA, DB_PATH, cid, token, str(u.effective_chat.id))
+        await q.answer(res.get("error", "prévia reenviada 👆")[:200],
+                       show_alert=not res.get("ok"))
+
     app.add_handler(CommandHandler("pendentes", _pendentes))
-    app.add_handler(CallbackQueryHandler(_tap))
+    app.add_handler(CommandHandler("lista", _lista))
+    app.add_handler(CallbackQueryHandler(_tap, pattern="^(ap|rj):"))
+    app.add_handler(CallbackQueryHandler(_ver, pattern="^ver:"))
     app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, _titulo_reply))
     app.add_handler(CommandHandler("remover", _remover))
     print("Bot ViraClipe no ar (polling).")
