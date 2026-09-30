@@ -6,13 +6,14 @@ import types
 
 def _load(monkeypatch, tmp_path):
     from pathlib import Path
-    monkeypatch.syspath_prepend("/root/linux/projetos/ViraClipe")
+    ROOT = str(Path(__file__).resolve().parent.parent)
+    monkeypatch.syspath_prepend(ROOT)
     for m in list(sys.modules):
         if m == "tools.bot_poll" or m.startswith("tools.bot_poll."):
             del sys.modules[m]
     import importlib
     pkg = types.ModuleType("tools")
-    pkg.__path__ = ["/root/linux/projetos/ViraClipe/tools"]
+    pkg.__path__ = [f"{ROOT}/tools"]
     sys.modules["tools"] = pkg
     bp = importlib.import_module("tools.bot_poll")
     bp.API = "https://x/botT"

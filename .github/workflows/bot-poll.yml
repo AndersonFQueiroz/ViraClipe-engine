@@ -45,6 +45,11 @@ jobs:
           path: data/viraclipe.db
           key: viraclipe-db-${{ github.run_id }}
           restore-keys: viraclipe-db-
+      - name: Aplica seed anti-repetição
+        run: |
+          if [ -f data/seed_state.sql ]; then
+            python3 -c "import sqlite3; con=sqlite3.connect('data/viraclipe.db'); con.executescript(open('data/seed_state.sql',encoding='utf-8').read()); con.commit(); con.close(); print('seed aplicado')"
+          fi
       - name: Poll Telegram
         run: python3 tools/bot_poll.py
       - name: Salva banco

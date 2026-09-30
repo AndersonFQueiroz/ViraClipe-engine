@@ -5,16 +5,17 @@ import types
 
 
 def _load_dia(monkeypatch, tmp_path):
-    monkeypatch.syspath_prepend("/root/linux/projetos/ViraClipe")
+    from pathlib import Path
+    ROOT = str(Path(__file__).resolve().parent.parent)
+    monkeypatch.syspath_prepend(ROOT)
     monkeypatch.setenv("DB_PATH", str(tmp_path / "t.db"))
     monkeypatch.setenv("FACTORY_DATA", str(tmp_path / "f"))
     for m in list(sys.modules):
         if m == "tools.dia" or m.startswith("tools.dia."):
             del sys.modules[m]
     import importlib
-    from pathlib import Path
     tools_pkg = types.ModuleType("tools")
-    tools_pkg.__path__ = ["/root/linux/projetos/ViraClipe/tools"]
+    tools_pkg.__path__ = [f"{ROOT}/tools"]
     sys.modules["tools"] = tools_pkg
     dia = importlib.import_module("tools.dia")
     # settings pode já estar importado c/ paths reais: sobrescreve no módulo
