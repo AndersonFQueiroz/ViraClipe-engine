@@ -21,6 +21,22 @@ from pathlib import Path
 
 from config.settings import DB_PATH, FACTORY_DATA
 
+HELP_TXT = (
+    "🤖 *Como usar*\n\n"
+    "📺 *Prévias* (chegam sozinhas):\n"
+    "• ✅ = entra na fila (hoje ou próximo dia livre)\n"
+    "• ❌ = descarta (nunca posta)\n"
+    "• ↩️ responde a prévia com texto = *título seu* (IA refaz a descrição)\n"
+    "• ↩️ responde com `d:` + texto = *descrição sua* (sem IA)\n\n"
+    "📋 *Comandos:*\n"
+    "• /lista — aprovados (dia/hora) + 🎬 p/ rever o vídeo\n"
+    "• /pendentes \\[data\\] — reenvia prévias aguardando\n"
+    "• /fila \\[data\\] — arquivos do dia\n"
+    "• /status — resumo banco/top cortes\n"
+    "• /remover \\<cut_id\\> \\[motivo\\] — remove + denylist\n\n"
+    "⏰ Automático 08h: clips postam sozinhos (5/dia 9/12/15/18/21h)."
+)
+
 
 def parse_remover_args(text: str) -> tuple[str, str]:
     parts = (text or "").split(None, 2)
@@ -120,22 +136,6 @@ def run() -> int:
             await u.message.reply_text("🤖 bot privado — apenas o dono.")
             return True
         return False
-
-    HELP_TXT = (
-        "🤖 *Como usar*\n\n"
-        "📺 *Prévias* (chegam sozinhas):\n"
-        "• ✅ = entra na fila (hoje ou próximo dia livre)\n"
-        "• ❌ = descarta (nunca posta)\n"
-        "• ↩️ responde a prévia com texto = *título seu* (IA refaz a descrição)\n"
-        "• ↩️ responde com `d:` + texto = *descrição sua* (sem IA)\n\n"
-        "📋 *Comandos:*\n"
-        "• /lista — aprovados (dia/hora) + 🎬 p/ rever o vídeo\n"
-        "• /pendentes \\[data\\] — reenvia prévias aguardando\n"
-        "• /fila \\[data\\] — arquivos do dia\n"
-        "• /status — resumo banco/top cortes\n"
-        "• /remover \\<cut_id\\> \\[motivo\\] — remove + denylist\n\n"
-        "⏰ Automático 08h: clips postam sozinhos (5/dia 9/12/15/18/21h)."
-    )
 
     async def _start(u: Update, c: ContextTypes.DEFAULT_TYPE):
         if await _negado(u):

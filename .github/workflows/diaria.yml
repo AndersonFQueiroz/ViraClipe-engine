@@ -1,11 +1,13 @@
 name: ViraClipe Diaria (split publico/full)
 
 # PÚBLICO-SAFE: só main + schedule leem Secrets. PR de fork NUNCA recebe secret.
-# SEM schedule de propósito: o cron oficial roda LOCAL (cron_diario.sh ->
-# tools/dia.py), onde bot+banco+arquivos estão juntos (botão de aprovar só
-# funciona lá). Actions = backup manual (workflow_dispatch) com MESMO script.
-# Rodar nos dois lugares dessincroniza o banco (repetidos!).
+# COM schedule: Actions virou o escritor oficial (repo público = minutos
+# ilimitados). Banco via cache (dedup entre dias). O bot local deve ficar
+# DESLIGADO (dois pollers roubam updates um do outro); approval via
+# bot-poll.yml a cada 15 min. Nunca rodar dia.py local + Actions juntos.
 on:
+  schedule:
+    - cron: "0 11 * * *" # 08h BRT todo dia
   workflow_dispatch:
     inputs:
       date:
@@ -52,7 +54,7 @@ jobs:
       TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
       TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-      BUFFER_API_KEY: ${{ inputs.publish && secrets.BUFFER_API_KEY || '' }}
+      BUFFER_API_KEY: ${{ (inputs.publish != false) && secrets.BUFFER_API_KEY || '' }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
     steps:
@@ -77,6 +79,11 @@ jobs:
           path: data/viraclipe.db
           key: viraclipe-db-${{ github.run_id }}
           restore-keys: viraclipe-db-
+      - name: Aplica seed anti-repetição (migração local -> nuvem)
+        run: |
+          if [ -f data/seed_state.sql ]; then
+            python3 -c "import sqlite3; con=sqlite3.connect('data/viraclipe.db'); con.executescript(open('data/seed_state.sql',encoding='utf-8').read()); con.commit(); con.close(); print('seed aplicado')"
+          fi
       - name: Seed + ativa whitelist
         env:
           VIRACLIP_ACTIVE: ${{ vars.VIRACLIP_ACTIVE }}
