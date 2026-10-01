@@ -81,6 +81,125 @@ def create_post(token: str, svc: str, channel_id: str, text: str,
     raise RuntimeError(res.get("message", "erro desconhecido"))
 
 
+def _org_id(token: str) -> str:
+    orgs = _gql(token, "query { account { organizations { id name } } }")
+    org_list = ((orgs.get("account") or {}).get("organizations")) or []
+    return str((org_list[0].get("id") if org_list else "") or "")
+
+
+def posts_com_erro(token: str, horas: int = 48) -> list[dict]:
+    """Posts YT com erro de mídia nas últimas `horas`h (p/ auto-recovery)."""
+    import datetime as _dt
+
+    org = _org_id(token)
+    if not org:
+        return []
+    try:
+        data = _gql(token,
+                    "query($o: OrganizationId!) { posts(input: {organizationId: $o})"
+                    " { edges { node { id channelService dueAt error { message } } } } }",
+                    {"o": org})
+    except Exception:
+        return []
+    edges = (data.get("posts") or {}).get("edges") or []
+    out = []
+    for e in edges:
+        n = e.get("node") or {}
+        if "youtube" not in str(n.get("channelService") or "").lower():
+            continue
+        err = ((n.get("error") or {}).get("message") or "")
+        if not err:
+            continue
+        try:
+            due = _dt.datetime.fromisoformat(str(n.get("dueAt") or ""))
+        except ValueError:
+            continue
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=_dt.timezone.utc)
+        age = (_dt.datetime.now(_dt.timezone.utc) - due).total_seconds() / 3600
+        if 0 <= age <= horas:
+            out.append({"post_id": n.get("id"), "due": str(n.get("dueAt")),
+                        "error": err[:200]})
+    return out
+
+
+def delete_post(token: str, post_id: str) -> bool:
+    try:
+        data = _gql(token,
+                    "mutation($i: DeletePostInput!) { deletePost(input: $i) { __typename } }",
+                    {"i": {"id": post_id}})
+        return "DeletePostSuccess" in json.dumps(data)
+    except Exception:
+        return False
+
+
+def recuperar_youtube(factory_data: Path, db_path: Path, token: str = "",
+                      hoje: str = "") -> dict:
+    """Recupera posts YT com erro: deleta o quebrado, re-uploada fresco e
+    reagenda no próximo slot livre. Retorna resumo. Nunca levanta."""
+    import datetime as _dt
+
+    from . import aprova as _ap
+    from . import db as _db
+    from . import upload_public as _up
+
+    token = token or os.environ.get("BUFFER_API_KEY", "")
+    if not token:
+        return {"ok": False, "error": "sem BUFFER_API_KEY"}
+    hoje = hoje or _dt.date.today().isoformat()
+    _db.init_db(db_path)
+    try:
+        quebrados = posts_com_erro(token)
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}"}
+    rec, falhas = [], []
+    for q in quebrados:
+        con = _db.connect(db_path)
+        try:
+            row = con.execute(
+                "SELECT cut_id FROM posts WHERE buffer_id=?", (q["post_id"],)).fetchone()
+            cut_id = str(row["cut_id"]) if row else ""
+            frow = con.execute(
+                "SELECT * FROM fila WHERE cut_id=?", (cut_id,)).fetchone() if cut_id else None
+        finally:
+            con.close()
+        if not frow:
+            continue  # sem arquivo local: nada a refazer
+        f = dict(frow)
+        mp4 = Path(str(f.get("mp4") or ""))
+        if not mp4.exists():
+            continue
+        nd, ns = _ap.proximo_slot(db_path, hoje)
+        due = _ap.due_at(nd, ns)
+        try:
+            chans = channels(token)
+            url = _up.upload(mp4)  # upload FRESCO (o antigo o YT rejeitou)
+            if not url:
+                raise RuntimeError("upload falhou")
+            pid = create_post(token, "youtube", chans["youtube"],
+                              str(f.get("caption") or "")[:2100], url, due,
+                              str(f.get("titulo") or f"ViraClipe {nd}"))
+            delete_post(token, q["post_id"])
+        except Exception:
+            falhas.append(cut_id)
+            continue
+        con = _db.connect(db_path)
+        try:
+            con.execute("INSERT OR REPLACE INTO posts(cut_id, rede, buffer_id, agendado_para)"
+                        " VALUES(?,?,?,?)", (cut_id, "youtube", pid, due))
+            con.execute("INSERT OR REPLACE INTO fila(cut_id, mp4, titulo, caption, caption_tt,"
+                        " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?)",
+                        (cut_id, str(mp4), str(f.get("titulo") or "")[:90],
+                         str(f.get("caption") or "")[:2100],
+                         str(f.get("caption_tt") or "")[:2100],
+                         nd, ns, "agendado", hoje))
+            con.commit()
+            rec.append({"cut_id": cut_id, "dia": nd, "slot": ns})
+        finally:
+            con.close()
+    return {"ok": True, "recuperados": rec, "falhas": falhas}
+
+
 def main(day: str, factory_data: Path, only: list[str] | None = None,
          channels_fn=None, create_fn=None, uploader=None) -> int:
     token = os.environ.get("BUFFER_API_KEY", "")

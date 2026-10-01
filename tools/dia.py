@@ -153,6 +153,13 @@ def main(argv: list[str]) -> int:
             log(f"fila promovida: {promo}")
     except Exception as exc:
         log(f"fila: {type(exc).__name__} (sem chave? segue o dia).")
+    # 2º: recupera YT com erro de mídia (re-upload fresco + reagenda).
+    try:
+        rec = post_buffer.recuperar_youtube(FACTORY_DATA, DB_PATH, hoje=day)
+        if rec.get("recuperados"):
+            log(f"YT recuperado: {rec}")
+    except Exception as exc:
+        log(f"recovery YT: {type(exc).__name__} (segue o dia).")
     livres = max(0, 5 - aprova.comprometidos(DB_PATH, day))
     log(f"slots livres hoje: {livres}/5.")
 
