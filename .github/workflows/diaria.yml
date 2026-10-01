@@ -33,7 +33,8 @@ concurrency:
 
 jobs:
   diaria:
-    if: github.event_name != 'pull_request'
+    # Schedule só no mirror (mesmo motivo do bot-poll: sem duplicar posts).
+    if: github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.repository == 'AndersonFQueiroz/ViraClipe-engine')
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:

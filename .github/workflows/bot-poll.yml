@@ -18,7 +18,9 @@ concurrency:
 
 jobs:
   poll:
-    if: github.event_name != 'pull_request'
+    # Só o mirror executa schedule (privado não tem Secrets; dois pollers
+    # roubariam updates um do outro). Manual continua liberado nos dois.
+    if: github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.repository == 'AndersonFQueiroz/ViraClipe-engine')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
