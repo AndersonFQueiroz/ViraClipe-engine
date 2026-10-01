@@ -57,6 +57,11 @@ def _finalizar_gate(day: str, finais: list[dict]) -> int:
 
 
 def _slots_livres(day: str) -> list[int]:
+    """Slots livres E futuros (+15min). Slot passado nunca agenda (Buffer rejeita)."""
+    import datetime as _dt
+
+    from factory.aprova import due_at
+
     _db.init_db(DB_PATH)
     con = _db.connect(DB_PATH)
     try:
@@ -65,7 +70,18 @@ def _slots_livres(day: str) -> list[int]:
             (day,)).fetchall()}
     finally:
         con.close()
-    return [s for s in range(5) if s not in usados]
+    agora = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(minutes=15)
+    livres = []
+    for s in range(5):
+        if s in usados:
+            continue
+        try:
+            if _dt.datetime.fromisoformat(due_at(day, s)) <= agora:
+                continue
+        except ValueError:
+            continue
+        livres.append(s)
+    return livres
 
 
 def fonte_a(day: str, max_n: int) -> list[dict]:
