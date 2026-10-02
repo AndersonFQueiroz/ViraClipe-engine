@@ -23,12 +23,14 @@ def main() -> int:
     off = ""
     if "--offset" in sys.argv:
         off = sys.argv[sys.argv.index("--offset") + 1]
+        if off == "none":
+            off = ""  # nunca semear offset absurdo: trava o poller p/ sempre
     con = sqlite3.connect(str(DB_PATH))
     con.row_factory = sqlite3.Row
     lines = ["-- seed anti-repetição (gerado, pode commitar; sem segredos)",
              "CREATE TABLE IF NOT EXISTS cortes(cut_id TEXT PRIMARY KEY, video_id TEXT NOT NULL, streamer TEXT NOT NULL, t_inicio REAL NOT NULL, duracao REAL NOT NULL DEFAULT 0, chat REAL NOT NULL DEFAULT 0, audio REAL NOT NULL DEFAULT 0, viral REAL, score_final REAL NOT NULL DEFAULT 0, titulo TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'scored');",
              "CREATE TABLE IF NOT EXISTS clips_vistos(clip_id TEXT PRIMARY KEY, streamer TEXT NOT NULL, vod_id TEXT NOT NULL DEFAULT '', vod_offset REAL NOT NULL DEFAULT -1, views INTEGER NOT NULL DEFAULT 0, titulo TEXT NOT NULL DEFAULT '', visto_em TEXT NOT NULL DEFAULT '');",
-             "CREATE TABLE IF NOT EXISTS fila(cut_id TEXT PRIMARY KEY, mp4 TEXT NOT NULL DEFAULT '', titulo TEXT NOT NULL DEFAULT '', caption TEXT NOT NULL DEFAULT '', caption_tt TEXT NOT NULL DEFAULT '', dia_alvo TEXT NOT NULL DEFAULT '', slot INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'na_fila', criado_em TEXT NOT NULL DEFAULT '');",
+             "CREATE TABLE IF NOT EXISTS fila(cut_id TEXT PRIMARY KEY, mp4 TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', titulo TEXT NOT NULL DEFAULT '', caption TEXT NOT NULL DEFAULT '', caption_tt TEXT NOT NULL DEFAULT '', dia_alvo TEXT NOT NULL DEFAULT '', slot INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'na_fila', criado_em TEXT NOT NULL DEFAULT '');",
              "CREATE TABLE IF NOT EXISTS kv(chave TEXT PRIMARY KEY, valor TEXT NOT NULL DEFAULT '');"]
     for r in con.execute("SELECT * FROM clips_vistos"):
         d = dict(r)
@@ -41,9 +43,11 @@ def main() -> int:
             f" VALUES({q(d['cut_id'])},{q(d['video_id'])},{q(d['streamer'])},{float(d['t_inicio'])},{q(d['titulo'])},{q(d['status'])});")
     for r in con.execute("SELECT * FROM fila"):
         d = dict(r)
+        cols = [c[1] for c in con.execute("PRAGMA table_info(fila)").fetchall()]
+        url = q(d["url"]) if "url" in cols else "''"
         lines.append(
             "INSERT OR REPLACE INTO fila VALUES("
-            f"{q(d['cut_id'])},{q(d['mp4'])},{q(d['titulo'])},{q(d['caption'])},{q(d['caption_tt'])},{q(d['dia_alvo'])},{int(d['slot'])},{q(d['status'])},{q(d['criado_em'])});")
+            f"{q(d['cut_id'])},{q(d['mp4'])},{url},{q(d['titulo'])},{q(d['caption'])},{q(d['caption_tt'])},{q(d['dia_alvo'])},{int(d['slot'])},{q(d['status'])},{q(d['criado_em'])});")
     if off:
         lines.append(f"INSERT OR REPLACE INTO kv VALUES('tg_offset',{q(off)});")
     con.close()
