@@ -35,6 +35,74 @@ def _live_handle() -> str:
     return get_handle()
 
 
+def _espelhar_previews(db_path: Path, dia: str, finais: list[dict], pack: dict) -> None:
+    """Espelha cortes+mp4 no banco (bot aprova/edita sem arquivos)."""
+    import datetime as _dt
+    import sqlite3 as _sq
+
+    try:
+        con = _sq.connect(str(db_path))
+        con.row_factory = _sq.Row
+    except Exception:
+        return
+    try:
+        for key, vpath in (pack.get("videos") or {}).items():
+            cred = (pack.get("creditos") or {}).get(key) or {}
+            cid = str(cred.get("cut_id") or "")
+            if not cid:
+                continue
+            corte = next((c for c in finais if str(c.get("cut_id")) == cid), {})
+            blob = None
+            try:
+                b = Path(str(vpath)).read_bytes()
+                blob = b if len(b) > 100_000 else None
+            except Exception:
+                blob = None
+            tags = corte.get("hashtags") or []
+            con.execute(
+                "INSERT OR REPLACE INTO previews(cut_id, dia, streamer, titulo, descricao,"
+                " hashtags, caption, caption_tt, url, jogo, mp4, criado_em)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (cid, dia, str(corte.get("streamer") or ""),
+                 str(corte.get("titulo") or "")[:90],
+                 str(corte.get("descricao") or "")[:500],
+                 " ".join(str(t) for t in tags)[:200],
+                 str((pack.get("captions") or {}).get(key) or "")[:2100],
+                 str((pack.get("captions_tt") or {}).get(key) or "")[:2100],
+                 str(corte.get("url") or "")[:300],
+                 str(corte.get("jogo") or "")[:60],
+                 blob, _dt.date.today().isoformat()))
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
+def prune_previews(db_path: Path, manter_dias: int = 3) -> int:
+    """Apaga blobs mp4 antigos (metadados ficam). Banco do cache não explode."""
+    import datetime as _dt
+    import sqlite3 as _sq
+
+    try:
+        corte = (_dt.date.today() - _dt.timedelta(days=max(1, manter_dias))).isoformat()
+        con = _sq.connect(str(db_path))
+        try:
+            cur = con.execute("UPDATE previews SET mp4=NULL WHERE dia < ?", (corte,))
+            con.commit()
+            return cur.rowcount
+        finally:
+            try:
+                con.close()
+            except Exception:
+                pass
+    except Exception:
+        return 0
+
+
 def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
     tags_base = _live_tags()
     cta = _live_cta()
@@ -64,8 +132,9 @@ def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
 
 
 def build_pack(day_dir: Path, finais: list[dict],
-               keys: list[str] | None = None) -> Path:
-    """Monta pack.json. keys força chaves (slots livres); default c1..c5."""
+               keys: list[str] | None = None, db_path: Path | None = None) -> Path:
+    """Monta pack.json. keys força chaves (slots livres); default c1..c5.
+    Com db_path, espelha tudo na tabela previews (fonte única p/ bot/fila)."""
     captions, firsts, titles, videos, captions_tt = {}, {}, {}, {}, {}
     want = keys or [f"c{i}" for i in range(1, 6)]
     for key, c in zip(want, finais[:5]):
@@ -87,6 +156,8 @@ def build_pack(day_dir: Path, finais: list[dict],
                      for i, k in enumerate(videos)},
     }
     (day_dir / "pack.json").write_text(json.dumps(pack, ensure_ascii=False, indent=1), encoding="utf-8")
+    if db_path is not None:
+        _espelhar_previews(db_path, day_dir.name, finais, pack)
     zpath = day_dir / "pack_kwai.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
         for key, vpath in videos.items():

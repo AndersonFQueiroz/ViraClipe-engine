@@ -233,6 +233,38 @@ def test_definir_jogo_vod(tmp_path):
     assert not A.definir_jogo(fac, dbp, "twitch:9-100", "  ")["ok"]
 
 
+def test_tabela_primeiro_sem_arquivos(tmp_path):
+    """Nuvem sem day-files: definir/enfileirar via tabela previews."""
+    from factory import db as _db
+    dbp = tmp_path / "t.db"
+    _db.init_db(dbp)
+    fac = tmp_path / "f"  # SEM dirs de dia
+    con = _db.connect(dbp)
+    con.execute("INSERT INTO previews(cut_id, dia, streamer, titulo, descricao, caption,"
+                " caption_tt, url, jogo) VALUES(?,?,?,?,?,?,?,?,?)",
+                ("clip-Z", "2026-10-02", "s", "T velho", "d velha", "cap", "ctt",
+                 "https://clips.twitch.tv/Z", ""))
+    con.execute("INSERT INTO cortes(cut_id, video_id, streamer, t_inicio, duracao,"
+                " score_final, titulo, status) VALUES('clip-Z','clip:z','s',0,30,80,'T velho','qc_ok')")
+    con.commit()
+    con.close()
+    assert A.find_day(dbp, fac, "clip-Z") == "2026-10-02"
+    from factory import pack_redes as _P
+    assert "🎮 Jogo Novo" in _P.caption_for({"video_id": "clip:z", "streamer": "s",
+                                            "titulo": "T", "descricao": "d",
+                                            "hashtags": [], "jogo": "Jogo Novo"})[0]
+    res = A.definir_jogo(fac, dbp, "clip-Z", "Jogo Novo")
+    assert res["ok"] and res["jogo"] == "Jogo Novo"
+    res2 = A.definir_titulo(fac, dbp, "clip-Z", "Titulo Novo",
+                            gemini_fn=lambda *a, **k: {"titulo": "Titulo Novo",
+                                                       "descricao": "@s massa",
+                                                       "hashtags": ["a"], "viral_score": 80})
+    assert res2["ok"] and res2["titulo"] == "Titulo Novo"
+    assert A.prev_row(dbp, "clip-Z")["titulo"] == "Titulo Novo"
+    res3 = A.enfileirar("2026-10-02", fac, dbp, "clip-Z")
+    assert res3["ok"]  # snapshot veio da tabela, sem arquivos
+
+
 def test_find_day_e_marcar(tmp_path):
     dbp, fac = _setup(tmp_path)
     assert A.find_day_of_cut(fac, "clip-B") == "2026-09-28"

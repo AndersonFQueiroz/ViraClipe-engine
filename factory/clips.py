@@ -286,7 +286,7 @@ def process_clips_day(day: str, db_path: Path, factory_data: Path,
     cortes = _cutter.cutter_day(day, factory_data, db_path, runner=runner)
     finais = _render.render_day(day, factory_data, runner=runner)
     if finais:
-        _pack.build_pack(day_dir, finais, keys=keys)
+        _pack.build_pack(day_dir, finais, keys=keys, db_path=db_path)
         mark_clips_usados(db_path, ok_clips)
         print(f"clips: {len(finais)} final(is) + pack pronto.")
     return finais

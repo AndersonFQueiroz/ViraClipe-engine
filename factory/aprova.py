@@ -75,6 +75,38 @@ def key_of_cut(day_dir: Path, cut_id: str) -> str | None:
     return None
 
 
+def prev_row(db_path: Path, cut_id: str) -> dict | None:
+    """Linha da tabela previews (fonte única; funciona sem arquivos)."""
+    try:
+        con = _db.connect(db_path)
+    except Exception:
+        return None
+    try:
+        try:
+            row = con.execute("SELECT * FROM previews WHERE cut_id=?", (cut_id,)).fetchone()
+        except Exception:
+            return None
+        if not row:
+            return None
+        d = dict(row)
+        d.pop("mp4", None)
+        return d
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
+def find_day(db_path: Path, factory_data: Path, cut_id: str,
+             lookback: int = 7) -> str | None:
+    """Dia do cut: tabela previews primeiro (sem arquivos), pack depois."""
+    r = prev_row(db_path, cut_id)
+    if r and r.get("dia"):
+        return str(r["dia"])
+    return find_day_of_cut(factory_data, cut_id, lookback)
+
+
 def find_day_of_cut(factory_data: Path, cut_id: str, lookback: int = 7) -> str | None:
     """Acha o dia cujo pack.json contém o cut (botão não carrega a data)."""
     try:
@@ -113,189 +145,186 @@ def aprovar(day: str, factory_data: Path, db_path: Path, cut_id: str,
     return {"ok": True, "cut_id": cut_id, "key": key}
 
 
-def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
-                   novo_titulo: str, model: str = "gemini-3.5-flash-lite",
-                   api_key: str = "", gemini_fn=None) -> dict:
-    """Título do dono vira base: IA refaz a descrição em cima dele.
-
-    Atualiza cortes + scored/finais/pack (sem re-render: título não é
-    queimado no vídeo). Retorna resumo — nunca levanta.
-    """
-    from . import pack_redes as _pack
-    from . import score as _score
-
-    novo_titulo = (novo_titulo or "").strip()[:90]
-    if not novo_titulo:
-        return {"ok": False, "error": "título vazio"}
+def _base_corte(factory_data: Path, db_path: Path, cut_id: str) -> tuple[str | None, dict, bool]:
+    """(dia, corte, tem_arquivos): tabela previews primeiro, arquivos depois."""
+    corte: dict = {}
+    row = prev_row(db_path, cut_id)
+    if row:
+        tags = str(row.get("hashtags") or "").split()
+        corte = {"cut_id": cut_id, "streamer": str(row.get("streamer") or ""),
+                 "titulo": str(row.get("titulo") or ""),
+                 "descricao": str(row.get("descricao") or ""),
+                 "hashtags": tags, "url": str(row.get("url") or ""),
+                 "jogo": str(row.get("jogo") or ""),
+                 "views": 0, "duracao": 30.0}
+        if row.get("dia"):
+            return str(row["dia"]), corte, False
     day = find_day_of_cut(factory_data, cut_id)
     if not day:
-        return {"ok": False, "error": f"cut {cut_id} fora do pack"}
+        return None, corte, False
     day_dir = factory_data / day
     try:
         scored = json.loads((day_dir / "scored.json").read_text(encoding="utf-8"))
         finais = json.loads((day_dir / "finais.json").read_text(encoding="utf-8"))
     except Exception:
-        return {"ok": False, "error": "scored/finais ilegíveis"}
-    achou = False
-    for lst in (scored, finais):
+        return (day if corte else None), corte, False
+    for lst in (finais, scored):
         for c in lst:
             if str(c.get("cut_id")) == cut_id:
-                c["titulo"] = novo_titulo
-                achou = True
-    if not achou:
-        return {"ok": False, "error": f"cut {cut_id} não está no dia {day}"}
-    # IA refaz descrição/hashtags a partir do título do dono.
-    # Clips usam títulos irmãos como referência; VOD usa o próprio título.
-    base = None
-    refs: list[str] = []
-    if cut_id.startswith("clip-"):
-        try:
-            clips = json.loads((day_dir / "clips.json").read_text(encoding="utf-8"))
-        except Exception:
-            clips = []
-        base = next((x for x in clips
-                     if str(x.get("clip_id", "")).startswith(cut_id[5:])), None)
-        if base is not None:
-            refs = [str(x.get("titulo_clip") or "") for x in clips if x is not base]
-    else:
-        for lst in (scored, finais):
-            for c in lst:
-                if str(c.get("cut_id")) == cut_id:
-                    base = {"clip_id": cut_id, "streamer": str(c.get("streamer") or ""),
-                            "titulo_clip": novo_titulo, "views": 0,
-                            "duracao": float(c.get("duracao") or 30),
-                            "url": str(c.get("url") or "")}
-                    break
-            if base is not None:
-                break
-    if base is not None:
-        leg = _score.legendar_clip({**base, "titulo_clip": novo_titulo},
-                                   model, api_key or os.environ.get("GEMINI_API_KEY", ""),
-                                   gemini_fn=gemini_fn, refs=refs)
-        for lst in (scored, finais):
-            for c in lst:
-                if str(c.get("cut_id")) == cut_id:
-                    c["descricao"] = leg.get("descricao", c.get("descricao"))
-                    c["hashtags"] = leg.get("hashtags", c.get("hashtags"))
-    try:
-        (day_dir / "scored.json").write_text(
-            json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
-        (day_dir / "finais.json").write_text(
-            json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
-        _pack.build_pack(day_dir, finais)
-    except Exception as exc:
-        return {"ok": False, "error": f"pack falhou: {type(exc).__name__}"}
+                for k in ("titulo", "descricao", "hashtags", "streamer", "url", "jogo"):
+                    if c.get(k) not in (None, ""):
+                        corte[k if k != "titulo" else "titulo"] = c[k]
+                corte["cut_id"] = cut_id
+                if not corte.get("titulo"):
+                    corte["titulo"] = str(c.get("titulo") or "")
+                return day, corte, True
+    return (day if corte else None), corte, bool(corte)
+
+
+def _salvar_corte(factory_data: Path, db_path: Path, day: str | None, cut_id: str,
+                  patch: dict, tem_arquivos: bool) -> str | None:
+    """Aplica patch em tabela + arquivos (se houver) + pack + cortes + fila.
+    Retorna status da fila (p/ aviso de agendado)."""
     import re as _re2
-    try:
-        for lst in (finais,):
-            for c in lst:
-                if str(c.get("cut_id")) == cut_id:
-                    c["descricao"] = _re2.sub(r"https?://\S+", "",
-                                              str(c.get("descricao") or "")).strip()
-        (day_dir / "finais.json").write_text(
-            json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
-        _pack.build_pack(day_dir, finais)
-    except Exception:
-        pass
+
+    if "descricao" in patch:
+        patch["descricao"] = _re2.sub(r"https?://\S+", "",
+                                      str(patch["descricao"] or "")).strip()[:500]
+    if "titulo" in patch:
+        patch["titulo"] = str(patch["titulo"] or "")[:90]
+    if "jogo" in patch:
+        patch["jogo"] = str(patch["jogo"] or "")[:60]
     con = _db.connect(db_path)
     try:
-        con.execute("UPDATE cortes SET titulo=? WHERE cut_id=?", (novo_titulo, cut_id))
-        con.commit()
+        _db.init_db(db_path)
+        cols = {r[1] for r in con.execute("PRAGMA table_info(previews)").fetchall()}
+        if cols:
+            sets = ", ".join(f"{k}=?" for k in patch if k in
+                             {"titulo", "descricao", "hashtags", "jogo", "streamer", "url"})
+            vals = [patch[k] if k != "hashtags" else " ".join(patch[k]) for k in patch
+                    if k in {"titulo", "descricao", "hashtags", "jogo", "streamer", "url"}]
+            if sets:
+                try:
+                    con.execute(f"UPDATE previews SET {sets} WHERE cut_id=?", (*vals, cut_id))
+                except Exception:
+                    pass
+        try:
+            if "titulo" in patch:
+                con.execute("UPDATE cortes SET titulo=? WHERE cut_id=?", (patch["titulo"], cut_id))
+            if "jogo" in patch:
+                try:
+                    con.execute("UPDATE cortes SET jogo=? WHERE cut_id=?", (patch["jogo"], cut_id))
+                except Exception:
+                    pass
+        except Exception:
+            pass
         fila_st = None
         try:
             row = con.execute("SELECT status FROM fila WHERE cut_id=?", (cut_id,)).fetchone()
             fila_st = row["status"] if row else None
-            if fila_st == "na_fila":
-                pack_now = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-                for key, cred in (pack_now.get("creditos") or {}).items():
-                    if str((cred or {}).get("cut_id")) == cut_id:
-                        con.execute("UPDATE fila SET titulo=?, caption=?, caption_tt=? WHERE cut_id=?",
-                                    (novo_titulo,
-                                     str((pack_now.get("captions") or {}).get(key) or "")[:2100],
-                                     str((pack_now.get("captions_tt") or {}).get(key) or "")[:2100],
-                                     cut_id))
-                        break
-                con.commit()
         except Exception:
             pass
+        con.commit()
     finally:
-        con.close()
+        try:
+            con.close()
+        except Exception:
+            pass
+    if tem_arquivos and day:
+        from . import pack_redes as _pack
+
+        day_dir = factory_data / day
+        try:
+            scored = json.loads((day_dir / "scored.json").read_text(encoding="utf-8"))
+            finais = json.loads((day_dir / "finais.json").read_text(encoding="utf-8"))
+            for lst in (scored, finais):
+                for c in lst:
+                    if str(c.get("cut_id")) == cut_id:
+                        for k, v in patch.items():
+                            c[k] = v
+            (day_dir / "scored.json").write_text(
+                json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
+            (day_dir / "finais.json").write_text(
+                json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
+            _pack.build_pack(day_dir, finais)
+            if fila_st == "na_fila":
+                pack_now = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+                con2 = _db.connect(db_path)
+                try:
+                    for key, cred in (pack_now.get("creditos") or {}).items():
+                        if str((cred or {}).get("cut_id")) == cut_id:
+                            sets, vals = ["caption=?", "caption_tt=?"], [
+                                str((pack_now.get("captions") or {}).get(key) or "")[:2100],
+                                str((pack_now.get("captions_tt") or {}).get(key) or "")[:2100]]
+                            if "titulo" in patch:
+                                sets.append("titulo=?")
+                                vals.append(patch["titulo"])
+                            con2.execute(f"UPDATE fila SET {', '.join(sets)} WHERE cut_id=?",
+                                         (*vals, cut_id))
+                            break
+                    con2.commit()
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        con2.close()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    return fila_st
+
+
+def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
+                   novo_titulo: str, model: str = "gemini-3.5-flash-lite",
+                   api_key: str = "", gemini_fn=None) -> dict:
+    """Título do dono vira base: IA refaz a descrição em cima dele.
+    Funciona só com a tabela (sem arquivos). Nunca levanta.
+    """
+    from . import score as _score
+
+    novo_titulo = (novo_titulo or "").strip()[:90]
+    if not novo_titulo:
+        return {"ok": False, "error": "título vazio"}
+    day, base, tem_arq = _base_corte(factory_data, db_path, cut_id)
+    if not day and not base.get("titulo") and not base.get("streamer"):
+        return {"ok": False, "error": f"cut {cut_id} desconhecido"}
+    refs: list[str] = []
+    if tem_arq and day and cut_id.startswith("clip-"):
+        try:
+            clips = json.loads((factory_data / day / "clips.json").read_text(encoding="utf-8"))
+            refs = [str(x.get("titulo_clip") or "") for x in clips
+                    if not str(x.get("clip_id", "")).startswith(cut_id[5:])][:5]
+        except Exception:
+            refs = []
+    leg = _score.legendar_clip({**base, "titulo_clip": novo_titulo},
+                               model, api_key or os.environ.get("GEMINI_API_KEY", ""),
+                               gemini_fn=gemini_fn, refs=refs)
+    patch = {"titulo": novo_titulo,
+             "descricao": str(leg.get("descricao") or f"@{base.get('streamer', '')}"),
+             "hashtags": list(leg.get("hashtags") or [])}
+    fila_st = _salvar_corte(factory_data, db_path, day, cut_id, patch, tem_arq)
+    out = {"ok": True, "cut_id": cut_id, "titulo": novo_titulo,
+           "descricao": patch["descricao"]}
     if fila_st == "agendado":
-        desc_now = ""
-        for c in finais:
-            if str(c.get("cut_id")) == cut_id:
-                desc_now = str(c.get("descricao") or "")
-        return {"ok": True, "cut_id": cut_id, "titulo": novo_titulo,
-                "descricao": desc_now,
-                "aviso": "já agendado no Buffer — título novo vale pros próximos"}
-    desc = ""
-    try:
-        for lst in (finais,):
-            for c in lst:
-                if str(c.get("cut_id")) == cut_id:
-                    desc = str(c.get("descricao") or "")
-    except Exception:
-        pass
-    return {"ok": True, "cut_id": cut_id, "titulo": novo_titulo, "descricao": desc}
+        out["aviso"] = "já agendado no Buffer — título novo vale pros próximos"
+    return out
 
 
 def definir_descricao(factory_data: Path, db_path: Path, cut_id: str,
                       nova_desc: str) -> dict:
     """Descrição escrita pelo dono (via `d:`). Vale p/ fila; agendado avisa."""
-    from . import pack_redes as _pack
-
     nova_desc = (nova_desc or "").strip()
     if nova_desc.lower().startswith("d:"):
         nova_desc = nova_desc[2:].strip()
     nova_desc = nova_desc[:300]
     if not nova_desc:
         return {"ok": False, "error": "descrição vazia"}
-    day = find_day_of_cut(factory_data, cut_id)
-    if not day:
-        return {"ok": False, "error": f"cut {cut_id} fora do pack"}
-    day_dir = factory_data / day
-    try:
-        scored = json.loads((day_dir / "scored.json").read_text(encoding="utf-8"))
-        finais = json.loads((day_dir / "finais.json").read_text(encoding="utf-8"))
-    except Exception:
-        return {"ok": False, "error": "scored/finais ilegíveis"}
-    achou = False
-    for lst in (scored, finais):
-        for c in lst:
-            if str(c.get("cut_id")) == cut_id:
-                c["descricao"] = nova_desc
-                achou = True
-    if not achou:
-        return {"ok": False, "error": f"cut {cut_id} não está no dia {day}"}
-    try:
-        (day_dir / "scored.json").write_text(
-            json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
-        (day_dir / "finais.json").write_text(
-            json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
-        pack = _pack.build_pack(day_dir, finais)
-        _ = pack
-    except Exception as exc:
-        return {"ok": False, "error": f"pack falhou: {type(exc).__name__}"}
-    con = _db.connect(db_path)
-    try:
-        fila_st = None
-        try:
-            row = con.execute("SELECT status FROM fila WHERE cut_id=?", (cut_id,)).fetchone()
-            fila_st = row["status"] if row else None
-            if fila_st == "na_fila":
-                pack_now = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-                for key, cred in (pack_now.get("creditos") or {}).items():
-                    if str((cred or {}).get("cut_id")) == cut_id:
-                        con.execute("UPDATE fila SET caption=?, caption_tt=? WHERE cut_id=?",
-                                    (str((pack_now.get("captions") or {}).get(key) or "")[:2100],
-                                     str((pack_now.get("captions_tt") or {}).get(key) or "")[:2100],
-                                     cut_id))
-                        break
-                con.commit()
-        except Exception:
-            pass
-    finally:
-        con.close()
+    day, base, tem_arq = _base_corte(factory_data, db_path, cut_id)
+    if not day and not base.get("streamer"):
+        return {"ok": False, "error": f"cut {cut_id} desconhecido"}
+    fila_st = _salvar_corte(factory_data, db_path, day, cut_id,
+                            {"descricao": nova_desc}, tem_arq)
     out = {"ok": True, "cut_id": cut_id, "descricao": nova_desc}
     if fila_st == "agendado":
         out["aviso"] = "já agendado no Buffer — descrição nova vale pros próximos"
@@ -306,65 +335,31 @@ def definir_jogo(factory_data: Path, db_path: Path, cut_id: str,
                  nome: str) -> dict:
     """Dono informa o jogo na aprovação (VOD não tem fonte 100%).
 
-    Atualiza scored/finais/pack/cortes + snapshot da fila (se na_fila).
+    Funciona só com a tabela (sem arquivos). Snapshot da fila se na_fila.
     """
-    from . import pack_redes as _pack
-
     nome = (nome or "").strip()[:60]
     if not nome:
         return {"ok": False, "error": "nome vazio"}
-    day = find_day_of_cut(factory_data, cut_id)
-    if not day:
-        return {"ok": False, "error": f"cut {cut_id} fora do pack"}
-    day_dir = factory_data / day
-    try:
-        scored = json.loads((day_dir / "scored.json").read_text(encoding="utf-8"))
-        finais = json.loads((day_dir / "finais.json").read_text(encoding="utf-8"))
-    except Exception:
-        return {"ok": False, "error": "scored/finais ilegíveis"}
-    achou = False
-    for lst in (scored, finais):
-        for c in lst:
-            if str(c.get("cut_id")) == cut_id:
-                c["jogo"] = nome
-                achou = True
-    if not achou:
-        return {"ok": False, "error": f"cut {cut_id} não está no dia {day}"}
-    try:
-        (day_dir / "scored.json").write_text(
-            json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
-        (day_dir / "finais.json").write_text(
-            json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
-        _pack.build_pack(day_dir, finais)
-    except Exception as exc:
-        return {"ok": False, "error": f"pack falhou: {type(exc).__name__}"}
-    con = _db.connect(db_path)
-    try:
+    day, base, tem_arq = _base_corte(factory_data, db_path, cut_id)
+    if not day and not base.get("streamer"):
+        # Tabela pode não ter o corte (fila antiga): registra o essencial.
+        _db.init_db(db_path)
+        con = _db.connect(db_path)
         try:
-            con.execute("UPDATE cortes SET jogo=? WHERE cut_id=?", (nome, cut_id))
+            con.execute("INSERT OR IGNORE INTO previews(cut_id, jogo) VALUES(?,?)",
+                        (cut_id, nome))
+            con.execute("UPDATE previews SET jogo=? WHERE cut_id=?", (nome, cut_id))
+            con.commit()
         except Exception:
             pass
-        fila_st, synced = None, False
-        try:
-            row = con.execute("SELECT status FROM fila WHERE cut_id=?", (cut_id,)).fetchone()
-            fila_st = row["status"] if row else None
-            if fila_st == "na_fila":
-                pack_now = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-                for key, cred in (pack_now.get("creditos") or {}).items():
-                    if str((cred or {}).get("cut_id")) == cut_id:
-                        con.execute("UPDATE fila SET caption=?, caption_tt=? WHERE cut_id=?",
-                                    (str((pack_now.get("captions") or {}).get(key) or "")[:2100],
-                                     str((pack_now.get("captions_tt") or {}).get(key) or "")[:2100],
-                                     cut_id))
-                        synced = True
-                        break
-                con.commit()
-        except Exception:
-            pass
-        con.commit()
-    finally:
-        con.close()
-    out = {"ok": True, "cut_id": cut_id, "jogo": nome, "na_fila": synced}
+        finally:
+            try:
+                con.close()
+            except Exception:
+                pass
+        return {"ok": True, "cut_id": cut_id, "jogo": nome}
+    fila_st = _salvar_corte(factory_data, db_path, day, cut_id, {"jogo": nome}, tem_arq)
+    out = {"ok": True, "cut_id": cut_id, "jogo": nome}
     if fila_st == "agendado":
         out["aviso"] = "já agendado — jogo vale pros próximos"
     return out
@@ -460,15 +455,29 @@ def enfileirar(day: str, factory_data: Path, db_path: Path, cut_id: str) -> dict
     if st not in (*PENDENTE, "aprovado"):
         return {"ok": False, "error": f"cut {cut_id} não está pendente (status={st})"}
     day_dir = factory_data / day
-    finais = {str(f.get("cut_id")): f for f in _finais(day_dir)}
-    f = finais.get(cut_id)
-    if not f:
-        return {"ok": False, "error": f"cut {cut_id} fora dos finais"}
-    key = key_of_cut(day_dir, cut_id)
-    try:
-        pack = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-    except Exception:
-        return {"ok": False, "error": "pack ilegível"}
+    # Snapshot: tabela previews primeiro (nuvem não tem arquivos).
+    prow = prev_row(db_path, cut_id)
+    mp4 = titulo = cap = captt = url = ""
+    if prow:
+        mp4, titulo = str(prow.get("mp4") or ""), str(prow.get("titulo") or "")[:90]
+        # mp4 blob não vem no prev_row: busca só o path p/ fila? fila não precisa
+        # do path se o blob existir — promover lê o blob. Guarda marcador.
+        cap, captt = str(prow.get("caption") or "")[:2100], str(prow.get("caption_tt") or "")[:2100]
+        url = str(prow.get("url") or "")
+    else:
+        finais = {str(f.get("cut_id")): f for f in _finais(day_dir)}
+        f = finais.get(cut_id)
+        if not f:
+            return {"ok": False, "error": f"cut {cut_id} fora dos finais"}
+        key = key_of_cut(day_dir, cut_id)
+        try:
+            pack = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+        except Exception:
+            return {"ok": False, "error": "pack ilegível"}
+        mp4, titulo = str(f.get("mp4") or ""), str(f.get("titulo") or "")[:90]
+        cap = str((pack.get("captions") or {}).get(key or "", ""))[:2100]
+        captt = str((pack.get("captions_tt") or {}).get(key or "", ""))[:2100]
+        url = str(f.get("url") or "")
     dia_alvo, slot = proximo_slot(db_path, _dt.date.today().isoformat())
     _db.init_db(db_path)
     con = _db.connect(db_path)
@@ -476,10 +485,7 @@ def enfileirar(day: str, factory_data: Path, db_path: Path, cut_id: str) -> dict
         con.execute(
             "INSERT OR REPLACE INTO fila(cut_id, mp4, url, titulo, caption, caption_tt,"
             " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (cut_id, str(f.get("mp4") or ""), str(f.get("url") or ""),
-             str(f.get("titulo") or "")[:90],
-             str((pack.get("captions") or {}).get(key or "", ""))[:2100],
-             str((pack.get("captions_tt") or {}).get(key or "", ""))[:2100],
+            (cut_id, mp4, url, titulo, cap, captt,
              dia_alvo, slot, "na_fila", _dt.date.today().isoformat()))
         con.execute("UPDATE cortes SET status='na_fila' WHERE cut_id=?", (cut_id,))
         con.commit()
@@ -514,7 +520,33 @@ def promover_fila(factory_data: Path, db_path: Path, hoje: str = "",
     up = uploader or _up.upload
     ok, fail = 0, []
     for r in rows:
-        url = up(Path(r["mp4"])) if r["mp4"] else None
+        mp4p = Path(str(r["mp4"] or ""))
+        if mp4p.exists():
+            url = up(mp4p)
+        else:
+            # Sem arquivo (nuvem): usa o blob da tabela previews.
+            url = None
+            try:
+                conb = _db.connect(db_path)
+                try:
+                    brow = conb.execute("SELECT mp4 FROM previews WHERE cut_id=?",
+                                        (r["cut_id"],)).fetchone()
+                finally:
+                    conb.close()
+                blob = brow["mp4"] if brow else None
+                if blob and len(bytes(blob)) > 100_000:
+                    import tempfile as _tf
+                    with _tf.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+                        tf.write(bytes(blob))
+                    try:
+                        url = up(Path(tf.name))
+                    finally:
+                        try:
+                            Path(tf.name).unlink(missing_ok=True)
+                        except Exception:
+                            pass
+            except Exception:
+                url = None
         if not url:
             fail.append(r["cut_id"])
             continue
@@ -698,13 +730,35 @@ def reenviar(factory_data: Path, db_path: Path, cut_id: str,
     chat = chat or os.environ.get("TELEGRAM_OWNER_CHAT_ID", "")
     if not (token and chat):
         return {"ok": False, "error": "sem TELEGRAM_BOT_TOKEN/OWNER"}
-    day = find_day_of_cut(factory_data, cut_id)
+    day = find_day(db_path, factory_data, cut_id)
     if not day:
         return {"ok": False, "error": f"cut {cut_id} fora do pack"}
     f = next((x for x in _finais(factory_data / day)
               if str(x.get("cut_id")) == cut_id), None)
-    if not f or not Path(str(f.get("mp4") or "")).exists():
-        return {"ok": False, "error": f"vídeo de {cut_id} sumiu do disco"}
+    if f and Path(str(f.get("mp4") or "")).exists():
+        pass
+    else:
+        # Sem arquivo: reconstrói do blob da tabela.
+        prow = prev_row(db_path, cut_id)
+        if not prow:
+            return {"ok": False, "error": f"cut {cut_id} desconhecido"}
+        try:
+            conb = _db.connect(db_path)
+            try:
+                brow = conb.execute("SELECT mp4 FROM previews WHERE cut_id=?",
+                                    (cut_id,)).fetchone()
+            finally:
+                conb.close()
+            blob = brow["mp4"] if brow else None
+            if not blob or len(bytes(blob)) <= 100_000:
+                return {"ok": False, "error": f"vídeo de {cut_id} sumiu do disco"}
+            import tempfile as _tf
+            tf = _tf.NamedTemporaryFile(suffix=".mp4", delete=False)
+            tf.write(bytes(blob))
+            tf.close()
+            f = {**prow, "mp4": tf.name, "_tmp": True}
+        except Exception:
+            return {"ok": False, "error": f"vídeo de {cut_id} sumiu do disco"}
     try:
         resp = _post_preview(requests.Session(),
                              f"https://api.telegram.org/bot{token}", chat, f)
@@ -712,6 +766,12 @@ def reenviar(factory_data: Path, db_path: Path, cut_id: str,
         return {"ok": True, "cut_id": cut_id}
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:120]}"}
+    finally:
+        try:
+            if isinstance(f, dict) and f.get("_tmp"):
+                Path(str(f.get("mp4") or "")).unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def listar_fila(db_path: Path, dias: int = 7) -> list[dict]:

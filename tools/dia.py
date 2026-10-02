@@ -122,7 +122,7 @@ def fonte_b(day: str, max_vods: int = 1) -> list[dict]:
     finais = render.render_day(day, FACTORY_DATA)
     if not finais:
         return []
-    pack_redes.build_pack(FACTORY_DATA / day, finais)
+    pack_redes.build_pack(FACTORY_DATA / day, finais, db_path=DB_PATH)
     for v in prontos:  # limpa raws pesados
         try:
             Path(v["mp4"]).unlink(missing_ok=True)
@@ -153,6 +153,12 @@ def main(argv: list[str]) -> int:
             log(f"fila promovida: {promo}")
     except Exception as exc:
         log(f"fila: {type(exc).__name__} (sem chave? segue o dia).")
+    try:
+        n = pack_redes.prune_previews(DB_PATH)
+        if n:
+            log(f"previews: {n} blob(s) antigo(s) podados.")
+    except Exception as exc:
+        log(f"prune: {type(exc).__name__}.")
     # 2º: recupera YT com erro de mídia (re-upload fresco + reagenda).
     try:
         rec = post_buffer.recuperar_youtube(FACTORY_DATA, DB_PATH, hoje=day)

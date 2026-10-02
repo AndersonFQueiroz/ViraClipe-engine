@@ -191,7 +191,7 @@ def run() -> int:
             return
         data = (q.data or "")
         if data.startswith("ap:"):
-            day = _ap.find_day_of_cut(FACTORY_DATA, data[3:]) or _dt.date.today().isoformat()
+            day = _ap.find_day(DB_PATH, FACTORY_DATA, data[3:]) or _dt.date.today().isoformat()
             cid = data[3:]
             res = _ap.enfileirar(day, FACTORY_DATA, DB_PATH, cid)
             if not res.get("ok"):
