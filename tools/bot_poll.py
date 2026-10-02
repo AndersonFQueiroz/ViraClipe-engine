@@ -54,11 +54,18 @@ def get_offset() -> int:
     con = _db.connect(DB_PATH)
     try:
         row = con.execute("SELECT valor FROM kv WHERE chave='tg_offset'").fetchone()
-        return int(row["valor"]) if row else 0
+        stored = int(row["valor"]) if row else 0
     except Exception:
-        return 0
+        stored = 0
     finally:
         con.close()
+    try:
+        override = int(os.environ.get("TG_OFFSET_OVERRIDE", "") or 0)
+    except ValueError:
+        override = 0
+    if override and (not stored or override < stored):
+        return override
+    return stored
 
 
 def set_offset(off: int) -> None:
@@ -207,6 +214,24 @@ def main() -> int:
         return 0
     updates = data.get("result") or []
     print(f"poll: {len(updates)} update(s) a partir de {off}.")
+    if not updates and off:
+        # Offset pode ter travado no futuro (seed absurda): se o servidor
+        # PROVA que há updates pendentes, reseta p/ 0 e busca de novo.
+        try:
+            info = api("getWebhookInfo").get("result") or {}
+            pend = int(info.get("pending_update_count") or 0)
+        except Exception:
+            pend = 0
+        if pend:
+            print(f"poll: offset {off} cego com {pend} pendente(s) — resetando.")
+            set_offset(0)
+            try:
+                data = api("getUpdates", json={"offset": 0, "timeout": 50,
+                                               "allowed_updates": ["message", "callback_query"]})
+                updates = data.get("result") or []
+                print(f"poll: {len(updates)} update(s) após reset.")
+            except Exception:
+                pass
     for u in updates:
         try:
             if "callback_query" in u:

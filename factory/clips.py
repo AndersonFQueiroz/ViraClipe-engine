@@ -48,6 +48,16 @@ def fetch_clips(handle: str, client_id: str = "", client_secret: str = "",
               {"broadcaster_id": uid, "first": min(100, max(1, first)),
                "started_at": start})
     out = []
+    games: dict[str, str] = {}
+    try:
+        gids = sorted({str(c.get("game_id") or "") for c in (res.get("data") or [])} - {""})
+        for i in range(0, len(gids), 100):
+            g = get("https://api.twitch.tv/helix/games", heads,
+                    {"id": gids[i:i + 100]})
+            for gg in (g.get("data") or []):
+                games[str(gg.get("id"))] = str(gg.get("name") or "")
+    except Exception:
+        games = {}
     for c in (res.get("data") or []):
         cid = str(c.get("id") or "")
         if not cid:
@@ -70,6 +80,8 @@ def fetch_clips(handle: str, client_id: str = "", client_secret: str = "",
             "created_at": str(c.get("created_at") or ""),
             "vod_id": str(c.get("video_id") or ""),
             "vod_offset": off,
+            "game_id": str(c.get("game_id") or ""),
+            "jogo": games.get(str(c.get("game_id") or ""), ""),
         })
     return out
 
@@ -203,6 +215,12 @@ def _clip_to_scored(clip: dict, mp4: Path, legenda: dict | None = None) -> dict:
     views = int(clip.get("views") or 0)
     leg = legenda or {}
     streamer = str(clip.get("streamer") or "")
+    jogo = str(clip.get("jogo") or "").strip()[:60]
+    tags = list(leg.get("hashtags") or [])
+    if jogo:
+        slug = "".join(ch for ch in jogo.lower() if ch.isalnum())[:30]
+        if slug and slug not in [str(t).lower() for t in tags]:
+            tags = ([slug] + tags)[:5]
     return {
         "cut_id": f"clip-{cid[:32]}",
         "video_id": f"clip:{cid}",
@@ -216,7 +234,8 @@ def _clip_to_scored(clip: dict, mp4: Path, legenda: dict | None = None) -> dict:
         "score_final": min(100.0, views / 10.0),
         "titulo": str(leg.get("titulo") or clip.get("titulo_clip") or "Melhor momento")[:90],
         "descricao": str(leg.get("descricao") or f"@{streamer} na Twitch 🎮"),
-        "hashtags": list(leg.get("hashtags") or []),
+        "hashtags": tags,
+        "jogo": jogo,
         "_mp4": str(mp4),
     }
 

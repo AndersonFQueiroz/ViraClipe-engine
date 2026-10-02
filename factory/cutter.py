@@ -84,13 +84,14 @@ def cutter_day(day: str, factory_data: Path, db_path: Path, runner=subprocess.ru
                 _voz = 50.0
             con.execute(
                 "INSERT OR REPLACE INTO cortes(cut_id, video_id, streamer, t_inicio, duracao,"
-                " chat, audio, viral, score_final, titulo, status, voz, rubrica)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " chat, audio, viral, score_final, titulo, status, voz, rubrica, jogo)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (cut_id, vid, str(s.get("streamer") or ""),
                  float(s.get("t_inicio", 0)), float(s.get("duracao", 30)),
                  _chat, float(s.get("audio", 0)),
                  s.get("viral"), float(s.get("score_final", 0)),
-                 str(s.get("titulo") or ""), "cut", _voz, _rub),
+                 str(s.get("titulo") or ""), "cut", _voz, _rub,
+                 str(s.get("jogo") or "")[:60]),
             )
             cortes.append({**s, "cut_id": cut_id, "mp4": str(out)})
         con.commit()

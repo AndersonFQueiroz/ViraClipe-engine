@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS feedback_views(
 CREATE TABLE IF NOT EXISTS fila(
   cut_id TEXT PRIMARY KEY,
   mp4 TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
   titulo TEXT NOT NULL DEFAULT '',
   caption TEXT NOT NULL DEFAULT '',
   caption_tt TEXT NOT NULL DEFAULT '',
@@ -95,7 +96,9 @@ def init_db(db_path: Path) -> None:
         con.executescript(SCHEMA)
         # Migração leve: colunas da fonte B em bancos antigos (ignora se já há).
         for ddl in ("ALTER TABLE cortes ADD COLUMN voz REAL NOT NULL DEFAULT 50",
-                    "ALTER TABLE cortes ADD COLUMN rubrica TEXT NOT NULL DEFAULT ''"):
+                    "ALTER TABLE cortes ADD COLUMN rubrica TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE fila ADD COLUMN url TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE cortes ADD COLUMN jogo TEXT NOT NULL DEFAULT ''"):
             try:
                 con.execute(ddl)
             except Exception:

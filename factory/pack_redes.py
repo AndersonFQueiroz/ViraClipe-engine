@@ -51,7 +51,11 @@ def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
         cap = f"{head}\n{body}\n{tail}\n{handle}"
     else:
         # Regra do dono: sem link/ID em nada — só @ + breve descrição.
+        # Jogo só aparece se 100% certo (API p/ clips, dono p/ VOD).
         lines = [f"🔥 {titulo}", f"🎮 @{streamer}" if streamer else "", desc]
+        jogo = str(corte.get("jogo") or "").strip()[:60]
+        if jogo:
+            lines.append(f"🎮 {jogo}")
         lines.append(" ".join(f"#{t}" for t in (tags or tags_base)))
         lines.append(handle)
         cap = "\n".join(l for l in lines if l)

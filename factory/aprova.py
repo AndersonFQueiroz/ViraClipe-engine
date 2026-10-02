@@ -302,6 +302,74 @@ def definir_descricao(factory_data: Path, db_path: Path, cut_id: str,
     return out
 
 
+def definir_jogo(factory_data: Path, db_path: Path, cut_id: str,
+                 nome: str) -> dict:
+    """Dono informa o jogo na aprovação (VOD não tem fonte 100%).
+
+    Atualiza scored/finais/pack/cortes + snapshot da fila (se na_fila).
+    """
+    from . import pack_redes as _pack
+
+    nome = (nome or "").strip()[:60]
+    if not nome:
+        return {"ok": False, "error": "nome vazio"}
+    day = find_day_of_cut(factory_data, cut_id)
+    if not day:
+        return {"ok": False, "error": f"cut {cut_id} fora do pack"}
+    day_dir = factory_data / day
+    try:
+        scored = json.loads((day_dir / "scored.json").read_text(encoding="utf-8"))
+        finais = json.loads((day_dir / "finais.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {"ok": False, "error": "scored/finais ilegíveis"}
+    achou = False
+    for lst in (scored, finais):
+        for c in lst:
+            if str(c.get("cut_id")) == cut_id:
+                c["jogo"] = nome
+                achou = True
+    if not achou:
+        return {"ok": False, "error": f"cut {cut_id} não está no dia {day}"}
+    try:
+        (day_dir / "scored.json").write_text(
+            json.dumps(scored, ensure_ascii=False, indent=1), encoding="utf-8")
+        (day_dir / "finais.json").write_text(
+            json.dumps(finais, ensure_ascii=False, indent=1), encoding="utf-8")
+        _pack.build_pack(day_dir, finais)
+    except Exception as exc:
+        return {"ok": False, "error": f"pack falhou: {type(exc).__name__}"}
+    con = _db.connect(db_path)
+    try:
+        try:
+            con.execute("UPDATE cortes SET jogo=? WHERE cut_id=?", (nome, cut_id))
+        except Exception:
+            pass
+        fila_st, synced = None, False
+        try:
+            row = con.execute("SELECT status FROM fila WHERE cut_id=?", (cut_id,)).fetchone()
+            fila_st = row["status"] if row else None
+            if fila_st == "na_fila":
+                pack_now = json.loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+                for key, cred in (pack_now.get("creditos") or {}).items():
+                    if str((cred or {}).get("cut_id")) == cut_id:
+                        con.execute("UPDATE fila SET caption=?, caption_tt=? WHERE cut_id=?",
+                                    (str((pack_now.get("captions") or {}).get(key) or "")[:2100],
+                                     str((pack_now.get("captions_tt") or {}).get(key) or "")[:2100],
+                                     cut_id))
+                        synced = True
+                        break
+                con.commit()
+        except Exception:
+            pass
+        con.commit()
+    finally:
+        con.close()
+    out = {"ok": True, "cut_id": cut_id, "jogo": nome, "na_fila": synced}
+    if fila_st == "agendado":
+        out["aviso"] = "já agendado — jogo vale pros próximos"
+    return out
+
+
 def rejeitar(db_path: Path, cut_id: str, motivo: str = "") -> dict:
     con = _db.connect(db_path)
     try:
@@ -406,9 +474,9 @@ def enfileirar(day: str, factory_data: Path, db_path: Path, cut_id: str) -> dict
     con = _db.connect(db_path)
     try:
         con.execute(
-            "INSERT OR REPLACE INTO fila(cut_id, mp4, titulo, caption, caption_tt,"
-            " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?)",
-            (cut_id, str(f.get("mp4") or ""),
+            "INSERT OR REPLACE INTO fila(cut_id, mp4, url, titulo, caption, caption_tt,"
+            " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (cut_id, str(f.get("mp4") or ""), str(f.get("url") or ""),
              str(f.get("titulo") or "")[:90],
              str((pack.get("captions") or {}).get(key or "", ""))[:2100],
              str((pack.get("captions_tt") or {}).get(key or "", ""))[:2100],
@@ -526,10 +594,16 @@ def registrar_posts(day: str, factory_data: Path, db_path: Path) -> int:
                 slot = int(key[1:]) - 1
             except ValueError:
                 slot = 0
+            try:
+                _fin = {str(x.get("cut_id")): x for x in json.loads(
+                    (day_dir / "finais.json").read_text(encoding="utf-8"))}
+            except Exception:
+                _fin = {}
             con.execute(
-                "INSERT OR REPLACE INTO fila(cut_id, mp4, titulo, caption, caption_tt,"
-                " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO fila(cut_id, mp4, url, titulo, caption, caption_tt,"
+                " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (cid, str((pack.get("videos") or {}).get(key) or ""),
+                 str((_fin.get(cid) or {}).get("url") or ""),
                  str((pack.get("titles") or {}).get(key) or "")[:90],
                  str((pack.get("captions") or {}).get(key) or "")[:2100],
                  str((pack.get("captions_tt") or {}).get(key) or "")[:2100],
@@ -547,7 +621,7 @@ def preview_caption(corte: dict) -> str:
     streamer = str(corte.get("streamer") or "?")
     views = corte.get("chat", "")
     return (f"🔍 PRÉVIA — ✅ fila, ❌ descarta\n"
-            f"↩️ responda c/ título | `d:` + texto p/ descrição\n"
+            f"↩️ responda c/ título | `d:` descrição | `jogo:` nome do jogo\n"
             f"📌 {titulo}\n🎮 @{streamer} | sinal {views}\n"
             f"🆔 `{corte.get('cut_id')}`")
 

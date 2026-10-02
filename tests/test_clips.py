@@ -7,10 +7,12 @@ from factory import db as _db
 def _get(url, headers=None, params=None, timeout=30):
     if "users" in url:
         return {"data": [{"id": "111", "login": "alguem"}]}
+    if "games" in url:
+        return {"data": [{"id": "g1", "name": "Jogo Teste"}]}
     return {"data": [
         {"id": "ClipA", "url": "https://clips.twitch.tv/ClipA",
          "title": "jogada insana", "duration": 28.5, "view_count": 500,
-         "created_at": "2026-09-27T20:00:00Z",
+         "created_at": "2026-09-27T20:00:00Z", "game_id": "g1",
          "video_id": "2881197324", "vod_offset": 4020},
         {"id": "ClipB", "url": "https://clips.twitch.tv/ClipB",
          "title": "mesmo momento outro angulo", "duration": 30.0,
@@ -39,6 +41,8 @@ def test_fetch_parse():
     assert out[0]["clip_id"] == "ClipA"
     assert out[0]["vod_offset"] == 4020.0
     assert out[1]["views"] == 900
+    assert out[0]["jogo"] == "Jogo Teste"  # game_id resolvido via /games
+    assert out[1].get("jogo", "") == ""  # sem game_id: vazio, nunca chute
 
 
 def test_sem_credencial_vazio():

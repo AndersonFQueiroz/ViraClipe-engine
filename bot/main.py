@@ -27,7 +27,8 @@ HELP_TXT = (
     "• ✅ = entra na fila (hoje ou próximo dia livre)\n"
     "• ❌ = descarta (nunca posta)\n"
     "• ↩️ responde a prévia com texto = *título seu* (IA refaz a descrição)\n"
-    "• ↩️ responde com `d:` + texto = *descrição sua* (sem IA)\n\n"
+    "• ↩️ responde com `d:` + texto = *descrição sua* (sem IA)\n"
+    "• ↩️ responde com `jogo:` + nome = *jogo* (VOD; clips já vêm com jogo)\n\n"
     "📋 *Comandos:*\n"
     "• /lista — aprovados (dia/hora) + 🎬 p/ rever o vídeo\n"
     "• /pendentes \\[data\\] — reenvia prévias aguardando\n"
@@ -237,6 +238,16 @@ def run() -> int:
                 await u.message.reply_text("⚠️ responde direto na PRÉVIA (com o vídeo).")
                 return
             txt = (u.message.text or "").strip()
+            if txt.lower().startswith("jogo:"):
+                res = _ap.definir_jogo(FACTORY_DATA, DB_PATH, cid, txt[5:])
+                if res.get("ok"):
+                    msg = f"🎮 jogo: {res['jogo']}\nToque ✅ na prévia p/ entrar na fila com ele."
+                    if res.get("aviso"):
+                        msg += f"\n⚠️ {res['aviso']}"
+                    await u.message.reply_text(msg)
+                else:
+                    await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
+                return
             if txt.lower().startswith("d:"):
                 res = _ap.definir_descricao(FACTORY_DATA, DB_PATH, cid, txt[2:])
                 if res.get("ok"):

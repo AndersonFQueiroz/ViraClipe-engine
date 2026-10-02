@@ -212,6 +212,27 @@ def test_listar_fila(tmp_path):
     assert [r["cut_id"] for r in rows] == ["clip-A"]
 
 
+def test_definir_jogo_vod(tmp_path):
+    dbp, fac = _setup(tmp_path)
+    day_dir = fac / "2026-09-28"
+    (day_dir / "real.mp4").write_bytes(b"x" * 200_000)
+    for name in ("scored.json", "finais.json"):
+        (day_dir / name).write_text(
+            __import__("json").dumps([{"cut_id": "twitch:9-100", "streamer": "s",
+                                       "titulo": "T", "descricao": "d",
+                                       "duracao": 30, "hashtags": [],
+                                       "mp4": str(day_dir / "real.mp4")}]), encoding="utf-8")
+    (day_dir / "pack.json").write_text(
+        __import__("json").dumps({
+            "videos": {"c1": "v1"}, "captions": {}, "captions_tt": {},
+            "creditos": {"c1": {"cut_id": "twitch:9-100"}}}), encoding="utf-8")
+    res = A.definir_jogo(fac, dbp, "twitch:9-100", "Jogo Lindo")
+    assert res["ok"] and res["jogo"] == "Jogo Lindo"
+    pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
+    assert "🎮 Jogo Lindo" in pack["captions"]["c1"]
+    assert not A.definir_jogo(fac, dbp, "twitch:9-100", "  ")["ok"]
+
+
 def test_find_day_e_marcar(tmp_path):
     dbp, fac = _setup(tmp_path)
     assert A.find_day_of_cut(fac, "clip-B") == "2026-09-28"

@@ -164,11 +164,11 @@ def recuperar_youtube(factory_data: Path, db_path: Path, token: str = "",
         finally:
             con.close()
         if not frow:
-            continue  # sem arquivo local: nada a refazer
+            continue  # corte desconhecido: nada a refazer
         f = dict(frow)
         mp4 = Path(str(f.get("mp4") or ""))
         if not mp4.exists():
-            continue
+            continue  # runner efêmero sem o arquivo: pula (url guardada p/ futuro)
         nd, ns = _ap.proximo_slot(db_path, hoje)
         due = _ap.due_at(nd, ns)
         try:
@@ -187,9 +187,10 @@ def recuperar_youtube(factory_data: Path, db_path: Path, token: str = "",
         try:
             con.execute("INSERT OR REPLACE INTO posts(cut_id, rede, buffer_id, agendado_para)"
                         " VALUES(?,?,?,?)", (cut_id, "youtube", pid, due))
-            con.execute("INSERT OR REPLACE INTO fila(cut_id, mp4, titulo, caption, caption_tt,"
-                        " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?)",
-                        (cut_id, str(mp4), str(f.get("titulo") or "")[:90],
+            con.execute("INSERT OR REPLACE INTO fila(cut_id, mp4, url, titulo, caption, caption_tt,"
+                        " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                        (cut_id, str(mp4), str(f.get("url") or ""),
+                         str(f.get("titulo") or "")[:90],
                          str(f.get("caption") or "")[:2100],
                          str(f.get("caption_tt") or "")[:2100],
                          nd, ns, "agendado", hoje))

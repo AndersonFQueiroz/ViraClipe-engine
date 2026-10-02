@@ -224,6 +224,8 @@ LEGENDA_PROMPT = (
     "descricao: '@streamer' na 1ª linha + 1 frase breve no mesmo estilo. "
     "SEM links/URLs na descricao (só @). "
     "hashtags: max 5 sem #, PT-BR (jogo, streamer, momento). "
+    "Se JOGO vier preenchido (nome oficial 100% certo via API): cite na "
+    "descricao ('🎮 {JOGO}') e use como hashtag (sem espaços). "
     "viral_score: chance de performar no TikTok/Reels/Shorts BR."
 )
 
@@ -248,6 +250,9 @@ def legendar_clip(clip: dict, model: str, api_key: str, gemini_fn=None,
         return fb
     texto = (f"TÍTULO ORIGINAL: {titulo_orig}\nVIEWS NA TWITCH: {clip.get('views')}\n"
              f"DURAÇÃO: {clip.get('duracao')}s")
+    jogo = str(clip.get("jogo") or "").strip()[:60]
+    if jogo:
+        texto += f"\nJOGO: {jogo}"
     ref_lines = "\n".join(f"- {r[:80]}" for r in (refs or [])[:5] if r and r != titulo_orig)
     if ref_lines:
         texto += f"\nTÍTULOS DE REFERÊNCIA (mesmo canal, imite o estilo):\n{ref_lines}"
