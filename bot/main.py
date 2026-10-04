@@ -225,7 +225,7 @@ def run() -> int:
             m = _re.search(r"🆔 `([^`]+)`", cap)
             cid = m.group(1) if m else None
             if not cid and rep.video and rep.video.file_unique_id:
-                cid = _ap.cut_por_video(FACTORY_DATA, rep.video.file_unique_id)
+                cid = _ap.cut_por_video(FACTORY_DATA, rep.video.file_unique_id, db_path=DB_PATH)
                 print(f"titulo-reply: por-video -> {cid}", flush=True)
             if not cid:
                 mt = _re.search(r"📌 (.+)", cap)

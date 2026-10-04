@@ -44,10 +44,48 @@ def _status_map(db_path: Path) -> dict[str, str]:
 
 
 def pendentes(day: str, factory_data: Path, db_path: Path) -> list[dict]:
-    """Finais com status cut/qc_ok (aguardando o dono)."""
+    """Finais com status cut/qc_ok (aguardando o dono).
+
+    Sem arquivos do dia (runner efêmero): reconstrói da tabela previews
+    (materializa mp4 do blob em temp). Temp é limpo após o envio.
+    """
+    import tempfile as _tf
+
     st = _status_map(db_path)
-    return [f for f in _finais(factory_data / day)
-            if st.get(str(f.get("cut_id"))) in PENDENTE]
+    arq = [f for f in _finais(factory_data / day)
+           if st.get(str(f.get("cut_id"))) in PENDENTE]
+    if arq:
+        return arq
+    out = []
+    try:
+        con = _db.connect(db_path)
+        try:
+            rows = con.execute("SELECT * FROM previews").fetchall()
+        finally:
+            try:
+                con.close()
+            except Exception:
+                pass
+    except Exception:
+        return []
+    for r in rows:
+        d = dict(r)
+        cid = str(d.get("cut_id") or "")
+        if st.get(cid) not in PENDENTE:
+            continue
+        blob = d.get("mp4")
+        if not blob or len(bytes(blob)) <= 100_000:
+            continue
+        try:
+            tf = _tf.NamedTemporaryFile(suffix=".mp4", delete=False)
+            tf.write(bytes(blob))
+            tf.close()
+            d["mp4"], d["_tmp"] = tf.name, True
+            d["cut_id"] = cid
+            out.append(d)
+        except Exception:
+            continue
+    return out
 
 
 def marcar_qc_ok(db_path: Path, cut_ids: list[str]) -> None:
@@ -678,7 +716,8 @@ def _post_preview(s, api: str, chat: str, f: dict) -> dict:
         return _net.call(_do)
 
 
-def _registrar_mapa(factory_data: Path, day: str, resps: list[tuple[str, dict]]) -> None:
+def _registrar_mapa(factory_data: Path, day: str, resps: list[tuple[str, dict]],
+                    db_path: Path | None = None) -> None:
     mapa = {}
     for cid, resp in resps:
         try:
@@ -688,17 +727,33 @@ def _registrar_mapa(factory_data: Path, day: str, resps: list[tuple[str, dict]])
                 mapa[fid] = cid
         except Exception:
             pass
-    if not mapa:
-        return
-    try:
-        mp = factory_data / day
-        prev = json.loads((mp / "preview_map.json").read_text(encoding="utf-8")) \
-            if (mp / "preview_map.json").exists() else {}
-        prev.update(mapa)
-        (mp / "preview_map.json").write_text(
-            json.dumps(prev, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    if mapa:
+        try:
+            mp = factory_data / day
+            prev = json.loads((mp / "preview_map.json").read_text(encoding="utf-8")) \
+                if (mp / "preview_map.json").exists() else {}
+            prev.update(mapa)
+            (mp / "preview_map.json").write_text(
+                json.dumps(prev, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    # Espelho no banco (nuvem efêmera perde o json).
+    if mapa and db_path is not None:
+        try:
+            _db.init_db(db_path)
+            con = _db.connect(db_path)
+            try:
+                for fid, cid in mapa.items():
+                    con.execute("INSERT OR REPLACE INTO kv(chave, valor) VALUES(?,?)",
+                                (f"pv:{fid}", cid))
+                con.commit()
+            finally:
+                try:
+                    con.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 def enviar_previews(day: str, factory_data: Path, db_path: Path,
@@ -719,7 +774,13 @@ def enviar_previews(day: str, factory_data: Path, db_path: Path,
             enviados += 1
         except Exception as exc:
             print(f"aprova: preview falhou {cid} ({type(exc).__name__})")
-    _registrar_mapa(factory_data, day, resps)
+        finally:
+            try:
+                if isinstance(f, dict) and f.get("_tmp"):
+                    Path(str(f.get("mp4") or "")).unlink(missing_ok=True)
+            except Exception:
+                pass
+    _registrar_mapa(factory_data, day, resps, db_path)
     return {"ok": True, "enviados": enviados}
 
 
@@ -762,7 +823,7 @@ def reenviar(factory_data: Path, db_path: Path, cut_id: str,
     try:
         resp = _post_preview(requests.Session(),
                              f"https://api.telegram.org/bot{token}", chat, f)
-        _registrar_mapa(factory_data, day, [(cut_id, resp)])
+        _registrar_mapa(factory_data, day, [(cut_id, resp)], db_path)
         return {"ok": True, "cut_id": cut_id}
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}: {str(exc)[:120]}"}
@@ -819,10 +880,25 @@ def cut_por_titulo(factory_data: Path, titulo: str,
 
 
 def cut_por_video(factory_data: Path, file_unique_id: str,
-                  lookback: int = 7) -> str | None:
+                  lookback: int = 7, db_path: Path | None = None) -> str | None:
     """cut_id pelo file_unique_id do vídeo respondido (robusto, sem caption)."""
     if not file_unique_id:
         return None
+    if db_path is not None:
+        try:
+            con = _db.connect(db_path)
+            try:
+                row = con.execute("SELECT valor FROM kv WHERE chave=?",
+                                  (f"pv:{file_unique_id}",)).fetchone()
+            finally:
+                try:
+                    con.close()
+                except Exception:
+                    pass
+            if row:
+                return str(row["valor"])
+        except Exception:
+            pass
     try:
         days = sorted([p for p in factory_data.iterdir() if p.is_dir()], reverse=True)
     except Exception:

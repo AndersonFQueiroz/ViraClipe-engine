@@ -179,7 +179,7 @@ def handle_message(m: dict) -> None:
     mt = re.search(r"🆔 `([^`]+)`", cap)
     cid = mt.group(1) if mt else None
     if not cid and (rep.get("video") or {}).get("file_unique_id"):
-        cid = _ap.cut_por_video(FACTORY_DATA, rep["video"]["file_unique_id"])
+        cid = _ap.cut_por_video(FACTORY_DATA, rep["video"]["file_unique_id"], db_path=DB_PATH)
     if not cid:
         mt2 = re.search(r"📌 (.+)", cap)
         if mt2:
