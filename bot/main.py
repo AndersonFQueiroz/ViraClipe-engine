@@ -6,6 +6,7 @@ Comandos:
   /fila [AAAA-MM-DD] — vods/scored/pack/buffer do dia
   /pendentes [AAAA-MM-DD] — reenvia prévias com botões ✅/❌ (só dono)
   /remover <cut_id> [motivo] — marca corte como removido + streamer na denylist (só dono)
+  /jogos @streamer — últimos 10 jogos do canal (base p/ `jogo:`)
 
 Botões ✅/❌ nas prévias: aprovar agenda SÓ aquele corte no Buffer;
 descartar marca rejeitado (nunca posta). Só OWNER decide.
@@ -31,6 +32,7 @@ HELP_TXT = (
     "• ↩️ responde com `jogo:` + nome = *jogo* (VOD; clips já vêm com jogo)\n\n"
     "📋 *Comandos:*\n"
     "• /lista — aprovados (dia/hora) + 🎬 p/ rever o vídeo\n"
+    "• /jogos @streamer — últimos 10 jogos (p/ copiar no `jogo:`)\n"
     "• /pendentes \\[data\\] — reenvia prévias aguardando\n"
     "• /fila \\[data\\] — arquivos do dia\n"
     "• /status — resumo banco/top cortes\n"
@@ -182,6 +184,18 @@ def run() -> int:
         day = (c.args[0] if c.args else _dt.date.today().isoformat())
         res = _ap.enviar_previews(day, FACTORY_DATA, DB_PATH, token, str(u.effective_chat.id))
         await u.message.reply_text(f"prévias: {res}")
+
+    async def _jogos(u: Update, c: ContextTypes.DEFAULT_TYPE):
+        if await _negado(u):
+            return
+        handle = ((c.args[0] if c.args else "") or "").strip().lstrip("@")
+        if not handle:
+            await u.message.reply_text("uso: /jogos @streamer (ex: /jogos @alanzoka)")
+            return
+        from factory import clips as _cl
+        jogos = _cl.ultimos_jogos(handle, os.environ.get("TWITCH_CLIENT_ID", ""),
+                                  os.environ.get("TWITCH_CLIENT_SECRET", ""))
+        await u.message.reply_text(_cl.formatar_jogos(handle, jogos))
 
     async def _tap(u: Update, c: ContextTypes.DEFAULT_TYPE):
         q = u.callback_query
@@ -356,6 +370,7 @@ def run() -> int:
     app.add_handler(CallbackQueryHandler(_ver, pattern="^ver:"))
     app.add_handler(MessageHandler(filters.TEXT & filters.REPLY, _titulo_reply))
     app.add_handler(CommandHandler("remover", _remover))
+    app.add_handler(CommandHandler("jogos", _jogos))
     print("Bot ViraClipe no ar (polling).")
     app.run_polling()
     return 0
