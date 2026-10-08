@@ -2,7 +2,7 @@
 
 Roda no GitHub Actions a cada 15 min (mirror público = minutos ilimitados).
  Cobre: botões ✅/❌/🎬, resposta c/ título, `d:` descrição, /lista,
- /pendentes, /status, /fila, /start, /help, /remover.
+  /pendentes, /status, /fila, /start, /help, /remover, /jogos.
 Sem dependência do python-telegram-bot: HTTP puro (requests).
 Offset do getUpdates persiste no banco (tabela kv) — nunca repete update.
 Uso: python3 tools/bot_poll.py [--once] (sempre once; loop é do cron)
@@ -166,6 +166,15 @@ def handle_message(m: dict) -> None:
                 kb.append([{"text": f"🎬 ver: {str(r['titulo'])[:25]}",
                             "callback_data": f"ver:{r['cut_id']}"[:64]}])
             send_text(chat, "\n".join(lines), {"inline_keyboard": kb})
+        elif cmd == "/jogos":
+            handle = (arg or "").strip().lstrip("@")
+            if not handle:
+                send_text(chat, "uso: /jogos @streamer (ex: /jogos @alanzoka)")
+                return
+            from factory import clips as _cl
+            jogos = _cl.ultimos_jogos(handle, os.environ.get("TWITCH_CLIENT_ID", ""),
+                                      os.environ.get("TWITCH_CLIENT_SECRET", ""))
+            send_text(chat, _cl.formatar_jogos(handle, jogos))
         elif cmd == "/remover":
             from bot.main import parse_remover_args, apply_remover
             cut_id, motivo = parse_remover_args(arg)
