@@ -198,6 +198,42 @@ def handle_message(m: dict) -> None:
               if res.get("ok") else f"⚠️ {res.get('error', 'falha')}")
 
 
+def watchdog_diaria(agora=None) -> None:
+    """Se a diaria de hoje não rodou (schedule falhou) e já passou das 12h
+    UTC, dispara via API e loga. Auto-cura sem ninguém mexer."""
+    import datetime as _dt
+
+    gh_token = os.environ.get("GITHUB_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not (gh_token and repo):
+        return
+    try:
+        agora = agora or _dt.datetime.now(_dt.timezone.utc)
+        if agora.hour < 12:
+            return  # schedule ainda pode disparar sozinho
+        h = {"Authorization": f"Bearer {gh_token}",
+             "Accept": "application/vnd.github+json"}
+        r = requests.get(
+            f"https://api.github.com/repos/{repo}/actions/workflows/"
+            "diaria.yml/runs?per_page=5",
+            headers=h, timeout=30)
+        r.raise_for_status()
+        hoje = agora.date().isoformat()
+        for run in (r.json().get("workflow_runs") or []):
+            ini = str(run.get("run_started_at") or run.get("created_at") or "")[:10]
+            if ini >= hoje and run.get("conclusion") in ("success", "in_progress", "queued"):
+                return  # hoje já rodou/tá rodando
+        d = requests.post(
+            f"https://api.github.com/repos/{repo}/actions/workflows/"
+            "diaria.yml/dispatches",
+            headers=h, timeout=30,
+            json={"ref": "main", "inputs": {"date": hoje}})
+        d.raise_for_status()
+        print(f"watchdog: diaria de {hoje} ausente — disparada manual.")
+    except Exception as exc:
+        print(f"watchdog: {type(exc).__name__} (segue).")
+
+
 def main() -> int:
     global API, OWNER
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -241,6 +277,7 @@ def main() -> int:
         except Exception as exc:
             print(f"poll: update {u.get('update_id')} falhou ({type(exc).__name__})")
         set_offset(int(u.get("update_id", off)) + 1)
+    watchdog_diaria()
     return 0
 
 

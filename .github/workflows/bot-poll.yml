@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: write # watchdog pode disparar a diaria
 
 concurrency:
   group: viraclipe-bot-poll

@@ -78,3 +78,59 @@ def test_offset_persiste(tmp_path, monkeypatch):
     assert bp.get_offset() == 0
     bp.set_offset(42)
     assert bp.get_offset() == 42
+
+
+def test_offset_override_recupera(tmp_path, monkeypatch):
+    bp, sent = _load(monkeypatch, tmp_path)
+    bp.set_offset(9999999999)  # seed absurdo do passado: trava tudo
+    assert bp.get_offset() == 9999999999
+    monkeypatch.setenv("TG_OFFSET_OVERRIDE", "100")
+    assert bp.get_offset() == 100  # override menor vence
+
+
+def test_watchdog_dispara_quando_falta(tmp_path, monkeypatch):
+    import datetime as _dt
+    bp, sent = _load(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "X/Y")
+    chamadas = {}
+
+    class R:
+        def __init__(self, payload): self._p = payload
+        def raise_for_status(self): pass
+        def json(self): return self._p
+
+    def fake_post(url, **k):
+        chamadas[url.split("/")[-1]] = k.get("json")
+        if url.endswith("/runs?per_page=5"):
+            return R({"workflow_runs": [{"run_started_at": "2020-01-01T00:00:00Z",
+                                         "conclusion": "success"}]})
+        return R({})
+    monkeypatch.setattr(bp.requests, "post", fake_post)
+    monkeypatch.setattr(bp.requests, "get", fake_post)
+    import datetime as _dt2
+    bp.watchdog_diaria(_dt2.datetime(2026, 10, 8, 15, 0, tzinfo=_dt2.timezone.utc))
+    assert "dispatches" in chamadas  # disparou (nada hoje)
+
+
+def test_watchdog_quieto_quando_rodou(tmp_path, monkeypatch):
+    import datetime as _dt
+    bp, sent = _load(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "X/Y")
+    hoje = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+    chamadas = []
+
+    class R:
+        def __init__(self, payload): self._p = payload
+        def raise_for_status(self): pass
+        def json(self): return self._p
+
+    def fake(url, **k):
+        chamadas.append(url)
+        return R({"workflow_runs": [{"run_started_at": hoje + "T11:00:00Z",
+                                     "conclusion": "success"}]})
+    monkeypatch.setattr(bp.requests, "post", fake)
+    monkeypatch.setattr(bp.requests, "get", fake)
+    bp.watchdog_diaria()
+    assert not any(u.endswith("dispatches") for u in chamadas)  # já rodou: quieto
