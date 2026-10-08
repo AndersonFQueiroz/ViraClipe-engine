@@ -86,6 +86,48 @@ def fetch_clips(handle: str, client_id: str = "", client_secret: str = "",
     return out
 
 
+def ultimos_jogos(handle: str, client_id: str = "", client_secret: str = "",
+                  limit: int = 10, days: int = 14,
+                  http_get=None, http_post=None) -> list[dict]:
+    """Últimos jogos do canal via Helix (game_id 100% API, nunca chute).
+
+    Fonte: clips recentes do canal, do mais novo ao mais antigo, deduplicados
+    por jogo. Sem credenciais ou sem clips retorna [].
+    Cada item: {jogo, visto_em(AAAA-MM-DD), ref(título de um clip)}.
+    """
+    handle = (handle or "").strip().lstrip("@")
+    if not handle:
+        return []
+    clips = fetch_clips(handle, client_id, client_secret, days=days,
+                        first=100, http_get=http_get, http_post=http_post)
+    out: list[dict] = []
+    vistos: set[str] = set()
+    for c in sorted(clips, key=lambda x: str(x.get("created_at") or ""), reverse=True):
+        jogo = (c.get("jogo") or "").strip()
+        if not jogo or jogo in vistos:
+            continue
+        vistos.add(jogo)
+        out.append({"jogo": jogo,
+                    "visto_em": str(c.get("created_at") or "")[:10],
+                    "ref": str(c.get("titulo_clip") or "")[:60]})
+        if len(out) >= max(1, limit):
+            break
+    return out
+
+
+def formatar_jogos(handle: str, jogos: list[dict]) -> str:
+    """Texto pronto p/ Telegram com os últimos jogos (puro, sem rede)."""
+    handle = (handle or "").strip().lstrip("@")
+    if not jogos:
+        return (f"🎮 @{handle}: sem jogos recentes "
+                "(sem clips nos últimos dias ou canal fora do ar).")
+    lines = [f"🎮 últimos jogos @{handle}:"]
+    for i, j in enumerate(jogos, 1):
+        lines.append(f"{i}. {j.get('jogo', '?')} ({j.get('visto_em') or '?'})")
+    lines.append("responda a prévia com `jogo:` + nome exato p/ gravar.")
+    return "\n".join(lines)
+
+
 def is_clip_duplicate(con, clip: dict, tol: float = OFFSET_TOL) -> bool:
     """True se clip_id exato OU mesmo momento (vod+offset±tol) já visto."""
     row = con.execute(
