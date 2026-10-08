@@ -404,34 +404,41 @@ def definir_jogo(factory_data: Path, db_path: Path, cut_id: str,
 
 
 def parse_resposta(text: str) -> dict:
-    """Uma resposta só com tudo: linhas `d:`/`jogo:` + resto = título.
+    """Uma resposta só com tudo: `d:`/`jogo:` + resto = título.
 
-    Ex:
+    Vale 1 item por linha OU tudo inline numa linha só:
       E morreu
       d: @alanzoka caiu do penhasco kkkk
       jogo: GTA V
+    ou: E morreu d: @alanzoka caiu kkkk jogo: GTA V
+    Marcador vale no início da linha ou após espaço (case-insensitive).
     Retorna {titulo?, descricao?, jogo?} (só chaves presentes).
     """
+    import re as _re
+    secs = {"titulo": [], "descricao": [], "jogo": []}
+    cur = "titulo"
+    pos = 0
+    for m in _re.finditer(r"(?:^|\s)(d:|jogo:)", text or "", _re.IGNORECASE):
+        trecho = (text[pos:m.start()]).strip()
+        if trecho:
+            secs[cur].append(trecho)
+        cur = "jogo" if m.group(1).lower() == "jogo:" else "descricao"
+        pos = m.end()
+    tail = (text[pos:] if text else "").strip()
+    if tail:
+        secs[cur].append(tail)
+    import re as _re2
+    norm = lambda s: _re2.sub(r"\s+", " ", " ".join(s)).strip()
     out: dict = {}
-    resto: list[str] = []
-    for ln in (text or "").splitlines():
-        s = ln.strip()
-        if not s:
-            continue
-        low = s.lower()
-        if low.startswith("jogo:"):
-            v = s[5:].strip()
-            if v:
-                out["jogo"] = v[:60]
-        elif low.startswith("d:"):
-            v = s[2:].strip()
-            if v:
-                out["descricao"] = v[:300]
-        else:
-            resto.append(s)
-    t = " ".join(resto).strip()[:90]
+    t = norm(secs["titulo"])[:90]
     if t:
         out["titulo"] = t
+    d = norm(secs["descricao"])[:300]
+    if d:
+        out["descricao"] = d
+    j = norm(secs["jogo"])[:60]
+    if j:
+        out["jogo"] = j
     return out
 
 
