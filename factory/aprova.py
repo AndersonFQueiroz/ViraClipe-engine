@@ -403,6 +403,102 @@ def definir_jogo(factory_data: Path, db_path: Path, cut_id: str,
     return out
 
 
+def parse_resposta(text: str) -> dict:
+    """Uma resposta só com tudo: linhas `d:`/`jogo:` + resto = título.
+
+    Ex:
+      E morreu
+      d: @alanzoka caiu do penhasco kkkk
+      jogo: GTA V
+    Retorna {titulo?, descricao?, jogo?} (só chaves presentes).
+    """
+    out: dict = {}
+    resto: list[str] = []
+    for ln in (text or "").splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        low = s.lower()
+        if low.startswith("jogo:"):
+            v = s[5:].strip()
+            if v:
+                out["jogo"] = v[:60]
+        elif low.startswith("d:"):
+            v = s[2:].strip()
+            if v:
+                out["descricao"] = v[:300]
+        else:
+            resto.append(s)
+    t = " ".join(resto).strip()[:90]
+    if t:
+        out["titulo"] = t
+    return out
+
+
+def aplicar_resposta(factory_data: Path, db_path: Path, cut_id: str,
+                     text: str, model: str = "gemini-3.5-flash-lite",
+                     api_key: str = "", gemini_fn=None) -> dict:
+    """Aplica título+descrição+jogo de uma vez (ordem: título→d:→jogo).
+
+    Título sozinho refaz a descrição via IA; `d:` por cima preserva a sua.
+    Nunca levanta em erro de parte: retorna o que aplicou + erros.
+    """
+    parts = parse_resposta(text)
+    if not parts:
+        return {"ok": False, "error": "resposta vazia"}
+    out: dict = {"ok": True, "cut_id": cut_id, "aplicado": []}
+    if "titulo" in parts:
+        r = definir_titulo(factory_data, db_path, cut_id, parts["titulo"],
+                           model, api_key, gemini_fn=gemini_fn)
+        if not r.get("ok"):
+            return {"ok": False, "error": r.get("error", "falha no título")}
+        out["titulo"] = r["titulo"]
+        out["descricao"] = r.get("descricao", "")  # IA; `d:` por cima se vier
+        out["aplicado"].append("titulo")
+        if r.get("aviso"):
+            out.setdefault("avisos", []).append(r["aviso"])
+    if "descricao" in parts:
+        r = definir_descricao(factory_data, db_path, cut_id, parts["descricao"])
+        if not r.get("ok"):
+            out["ok"] = False
+            out["error"] = r.get("error", "falha na descrição")
+        else:
+            out["descricao"] = r["descricao"]
+            out["aplicado"].append("descricao")
+            if r.get("aviso"):
+                out.setdefault("avisos", []).append(r["aviso"])
+    if "jogo" in parts:
+        r = definir_jogo(factory_data, db_path, cut_id, parts["jogo"])
+        if not r.get("ok"):
+            out["ok"] = False
+            out["error"] = r.get("error", "falha no jogo")
+        else:
+            out["jogo"] = r["jogo"]
+            out["aplicado"].append("jogo")
+            if r.get("aviso"):
+                out.setdefault("avisos", []).append(r["aviso"])
+    return out
+
+
+def formatar_resposta(res: dict) -> str:
+    """Confirmação única p/ Telegram após aplicar_resposta (puro, sem I/O)."""
+    if not res.get("ok") and not res.get("aplicado"):
+        return f"⚠️ {res.get('error', 'falha')}"
+    lines = []
+    if "titulo" in res:
+        lines.append(f"✏️ título: {res['titulo']}")
+    if res.get("descricao"):
+        lines.append(f"📝 descrição: {str(res['descricao'])[:300]}")
+    if "jogo" in res:
+        lines.append(f"🎮 jogo: {res['jogo']}")
+    msg = "\n".join(lines) if lines else "ok"
+    for a in res.get("avisos") or []:
+        msg += f"\n⚠️ {a}"
+    if not (res.get("avisos")):
+        msg += "\n\nToque ✅ na prévia p/ entrar na fila."
+    return msg
+
+
 def rejeitar(db_path: Path, cut_id: str, motivo: str = "") -> dict:
     con = _db.connect(db_path)
     try:
