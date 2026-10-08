@@ -170,3 +170,48 @@ def test_discover_automatico(tmp_path, monkeypatch):
     assert [c["clip_id"] for c in out2] == ["a-1"]
     D._TWITCH_TOKEN = ""
     assert os.path.exists(tmp_path / "2026-09-28" / "clips.json")
+
+
+def _get_jogos(url, headers=None, params=None, timeout=30):
+    if "users" in url:
+        return {"data": [{"id": "111", "login": "alanzoka"}]}
+    if "games" in url:
+        ids = (params or {}).get("id") or []
+        names = {"g1": "GTA V", "g2": "Fortnite", "g3": "Minecraft"}
+        return {"data": [{"id": i, "name": names.get(i, i)} for i in ids]}
+    return {"data": [
+        {"id": "C1", "url": "u1", "title": "clip novo", "duration": 30.0,
+         "view_count": 100, "created_at": "2026-10-07T20:00:00Z",
+         "game_id": "g1", "video_id": "v1", "vod_offset": 10},
+        {"id": "C2", "url": "u2", "title": "mesmo jogo outro dia", "duration": 30.0,
+         "view_count": 50, "created_at": "2026-10-06T20:00:00Z",
+         "game_id": "g1", "video_id": "v2", "vod_offset": 20},
+        {"id": "C3", "url": "u3", "title": "outro jogo", "duration": 30.0,
+         "view_count": 70, "created_at": "2026-10-05T20:00:00Z",
+         "game_id": "g2", "video_id": "v3", "vod_offset": 30},
+        {"id": "C4", "url": "u4", "title": "sem jogo", "duration": 30.0,
+         "view_count": 90, "created_at": "2026-10-04T20:00:00Z",
+         "game_id": "", "video_id": "v4", "vod_offset": 40},
+    ]}
+
+
+def test_ultimos_jogos_dedup_e_ordem():
+    from factory import discovery as D
+    D._TWITCH_TOKEN = ""
+    out = C.ultimos_jogos("@alanzoka", "id", "sec",
+                          http_get=_get_jogos, http_post=_post)
+    D._TWITCH_TOKEN = ""
+    assert [j["jogo"] for j in out] == ["GTA V", "Fortnite"]  # novo 1º, sem repeteco
+    assert out[0]["visto_em"] == "2026-10-07"
+
+
+def test_ultimos_jogos_sem_credencial():
+    assert C.ultimos_jogos("alanzoka") == []
+    assert C.ultimos_jogos("") == []
+
+
+def test_formatar_jogos():
+    txt = C.formatar_jogos("@alanzoka", [{"jogo": "GTA V", "visto_em": "2026-10-07",
+                                          "ref": "x"}])
+    assert "1. GTA V (2026-10-07)" in txt and "jogo:" in txt
+    assert "sem jogos" in C.formatar_jogos("zz", [])
