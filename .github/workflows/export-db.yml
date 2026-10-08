@@ -1,0 +1,30 @@
+name: Export DB (migração manual)
+
+# Ferramenta: baixa o banco atual do cache como artifact (migração Railway,
+# backup). Manual only — nunca roda sozinho.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restaura banco do cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/viraclipe.db
+          key: viraclipe-db-${{ github.run_id }}
+          restore-keys: viraclipe-db-
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: viraclipe-db
+          path: data/viraclipe.db
+          if-no-files-found: error
+          retention-days: 7
