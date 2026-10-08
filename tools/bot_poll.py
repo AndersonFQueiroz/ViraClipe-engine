@@ -195,6 +195,14 @@ def handle_message(m: dict) -> None:
             cid = _ap.cut_por_titulo(FACTORY_DATA, mt2.group(1))
     if not cid:
         return
+    if text.lower().startswith("jogo:"):
+        res = _ap.definir_jogo(FACTORY_DATA, DB_PATH, cid, text[5:])
+        msg = (f"🎮 jogo: {res.get('jogo')}\nToque ✅ na prévia p/ entrar na fila com ele."
+               if res.get("ok") else f"⚠️ {res.get('error', 'falha')}")
+        if res.get("ok") and res.get("aviso"):
+            msg += f"\n⚠️ {res['aviso']}"
+        send_text(chat, msg)
+        return
     if text.lower().startswith("d:"):
         res = _ap.definir_descricao(FACTORY_DATA, DB_PATH, cid, text[2:])
         send_text(chat, f"📝 descrição ok: {res.get('descricao', '')[:300]}"
