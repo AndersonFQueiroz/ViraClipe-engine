@@ -29,7 +29,8 @@ HELP_TXT = (
     "• ❌ = descarta (nunca posta)\n"
     "• ↩️ responde a prévia com texto = *título seu* (IA refaz a descrição)\n"
     "• ↩️ responde com `d:` + texto = *descrição sua* (sem IA)\n"
-    "• ↩️ responde com `jogo:` + nome = *jogo* (VOD; clips já vêm com jogo)\n\n"
+    "• ↩️ responde com `jogo:` + nome = *jogo* (VOD; clips já vêm com jogo)\n"
+    "• ↩️ tudo de uma vez (1 linha cada): título + `d:` + `jogo:`\n\n"
     "📋 *Comandos:*\n"
     "• /lista — aprovados (dia/hora) + 🎬 p/ rever o vídeo\n"
     "• /jogos @streamer — últimos 10 jogos (p/ copiar no `jogo:`)\n"
@@ -252,36 +253,14 @@ def run() -> int:
                 await u.message.reply_text("⚠️ responde direto na PRÉVIA (com o vídeo).")
                 return
             txt = (u.message.text or "").strip()
-            if txt.lower().startswith("jogo:"):
-                res = _ap.definir_jogo(FACTORY_DATA, DB_PATH, cid, txt[5:])
-                if res.get("ok"):
-                    msg = f"🎮 jogo: {res['jogo']}\nToque ✅ na prévia p/ entrar na fila com ele."
-                    if res.get("aviso"):
-                        msg += f"\n⚠️ {res['aviso']}"
-                    await u.message.reply_text(msg)
-                else:
-                    await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
+            parts = _ap.parse_resposta(txt)
+            if not parts:
+                await u.message.reply_text("⚠️ resposta vazia.")
                 return
-            if txt.lower().startswith("d:"):
-                res = _ap.definir_descricao(FACTORY_DATA, DB_PATH, cid, txt[2:])
-                if res.get("ok"):
-                    msg = f"📝 descrição ok: {res['descricao'][:300]}"
-                    if res.get("aviso"):
-                        msg += f"\n⚠️ {res['aviso']}"
-                    else:
-                        msg += "\nToque ✅ na prévia p/ entrar na fila."
-                    await u.message.reply_text(msg)
-                else:
-                    await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
-                return
-            await u.message.reply_text("✏️ processando título + descrição...")
-            res = _ap.definir_titulo(FACTORY_DATA, DB_PATH, cid, u.message.text)
-            if res.get("ok"):
-                await u.message.reply_text(
-                    f"✏️ título: {res['titulo']}\n📝 descrição: {res.get('descricao', '')[:300]}"
-                    f"\n\nToque ✅ na prévia p/ entrar na fila.")
-            else:
-                await u.message.reply_text(f"⚠️ {res.get('error', 'falha')}")
+            if parts.get("titulo"):
+                await u.message.reply_text("✏️ processando título + descrição...")
+            res = _ap.aplicar_resposta(FACTORY_DATA, DB_PATH, cid, txt)
+            await u.message.reply_text(_ap.formatar_resposta(res))
         except Exception as exc:
             print(f"titulo-reply ERRO: {type(exc).__name__}: {exc}", flush=True)
             try:
