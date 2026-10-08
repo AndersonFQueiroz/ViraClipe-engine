@@ -5,8 +5,10 @@ name: ViraClipe Bot Poll (sem daemon)
 # Mesma proteção do resto: PR de fork nunca recebe secret.
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  # Schedule DESLIGADO 08/10: polling agora é no Railway (viraclipe-poll,
+  # 1-2min). Dois pollers roubam updates um do outro. Manual segue p/ backup.
+  # schedule:
+  #   - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
