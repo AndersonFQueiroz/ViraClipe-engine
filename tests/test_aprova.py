@@ -265,6 +265,58 @@ def test_tabela_primeiro_sem_arquivos(tmp_path):
     assert res3["ok"]  # snapshot veio da tabela, sem arquivos
 
 
+def test_parse_resposta_tudo_de_uma_vez():
+    p = A.parse_resposta("E morreu\nd: @alanzoka caiu kkkk\njogo: GTA V")
+    assert p == {"titulo": "E morreu", "descricao": "@alanzoka caiu kkkk",
+                 "jogo": "GTA V"}
+
+
+def test_parse_resposta_inline_uma_linha():
+    p = A.parse_resposta("E morreu d: @alanzoka caiu kkkk jogo: GTA V")
+    assert p == {"titulo": "E morreu", "descricao": "@alanzoka caiu kkkk",
+                 "jogo": "GTA V"}
+
+
+def test_parse_resposta_parciais():
+    assert A.parse_resposta("jogo: GTA V") == {"jogo": "GTA V"}
+    assert A.parse_resposta("D: maiúsculo ok") == {"descricao": "maiúsculo ok"}
+    assert A.parse_resposta("só título") == {"titulo": "só título"}
+    assert A.parse_resposta("  \n ") == {}
+    # continuação pertence à seção aberta pelo marcador
+    p = A.parse_resposta("jogo: X\nparte um")
+    assert p.get("titulo") is None and p["jogo"] == "X parte um"
+    p = A.parse_resposta("Título aqui\nd: desc aqui")
+    assert p == {"titulo": "Título aqui", "descricao": "desc aqui"}
+
+
+def test_aplicar_resposta_ordem_titulo_d_jogo(tmp_path, monkeypatch):
+    dbp, fac = _setup(tmp_path)
+    ordem = []
+    monkeypatch.setattr(A, "definir_titulo",
+                        lambda *a, **k: ordem.append("titulo") or
+                        {"ok": True, "titulo": a[3], "descricao": "IA"})
+    monkeypatch.setattr(A, "definir_descricao",
+                        lambda *a, **k: ordem.append("descricao") or
+                        {"ok": True, "cut_id": "c", "descricao": "MINHA"})
+    monkeypatch.setattr(A, "definir_jogo",
+                        lambda *a, **k: ordem.append("jogo") or
+                        {"ok": True, "cut_id": "c", "jogo": "GTA V"})
+    res = A.aplicar_resposta(fac, dbp, "clip-A",
+                             "Título Novo\nd: minha desc\njogo: GTA V")
+    assert res["ok"] and ordem == ["titulo", "descricao", "jogo"]
+    assert res["descricao"] == "MINHA"  # d: ganha da IA
+    msg = A.formatar_resposta(res)
+    assert "✏️ título: Título Novo" in msg
+    assert "📝 descrição: MINHA" in msg
+    assert "🎮 jogo: GTA V" in msg and "✅" in msg
+
+
+def test_formatar_resposta_so_jogo():
+    msg = A.formatar_resposta({"ok": True, "cut_id": "c",
+                               "aplicado": ["jogo"], "jogo": "GTA V"})
+    assert "🎮 jogo: GTA V" in msg and "✏️" not in msg
+
+
 def test_find_day_e_marcar(tmp_path):
     dbp, fac = _setup(tmp_path)
     assert A.find_day_of_cut(fac, "clip-B") == "2026-09-28"

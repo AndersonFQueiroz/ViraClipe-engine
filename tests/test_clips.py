@@ -172,6 +172,45 @@ def test_discover_automatico(tmp_path, monkeypatch):
     assert os.path.exists(tmp_path / "2026-09-28" / "clips.json")
 
 
+def _fetch_rodizio(h, *a, **k):
+    views = {"alanzoka": 500, "novo": 100, "viral": 1000}
+    return [{"clip_id": f"{h}-1", "streamer": h, "url": "u",
+             "titulo_clip": "t", "duracao": 30.0, "views": views[h],
+             "created_at": "", "vod_id": f"v-{h}", "vod_offset": 100.0}]
+
+
+def _wl3(db):
+    return [{"handle": h, "plataforma": "twitch"}
+            for h in ("alanzoka", "novo", "viral")]
+
+
+def test_rodizio_ontem_vai_pro_fim(tmp_path, monkeypatch):
+    monkeypatch.setattr(C, "fetch_clips", _fetch_rodizio)
+    monkeypatch.setattr(C._disc, "load_whitelist", _wl3)
+    dbp = tmp_path / "t.db"
+    con = _db.connect(dbp)
+    _db.init_db(dbp)
+    C.marcar_rodizio(con, "alanzoka", "2026-10-07")  # apareceu ontem
+    C.marcar_rodizio(con, "viral", "2026-10-07")
+    con.commit()
+    con.close()
+    out = C.discover_clips("2026-10-08", dbp, tmp_path, max_clips_dia=3,
+                           min_views=10, max_por_streamer=5)
+    ids = [c["clip_id"] for c in out]
+    # viral de ontem (1000/7≈143) fura; alanzoka de ontem (500/7≈71) perde
+    # p/ estreante (100 cheio)
+    assert ids == ["viral-1", "novo-1", "alanzoka-1"]
+    con = _db.connect(dbp)
+    assert con.execute("SELECT ultimo_dia FROM rodizio WHERE streamer='novo'").fetchone()[0] == "2026-10-08"
+    con.close()
+
+
+def test_rodizio_peso_puro():
+    assert C.peso_rodizio(700, 1) == 100.0  # ontem: 1/7
+    assert C.peso_rodizio(700, 7) == 700.0  # semana: cheio
+    assert C.peso_rodizio(700, float("inf")) == 700.0  # nunca: cheio
+
+
 def _get_jogos(url, headers=None, params=None, timeout=30):
     if "users" in url:
         return {"data": [{"id": "111", "login": "alanzoka"}]}

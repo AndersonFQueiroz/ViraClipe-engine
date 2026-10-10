@@ -82,21 +82,47 @@ def _is_owner(uid) -> bool:
     return not OWNER or str(uid) == str(OWNER)
 
 
+def _tirar_botoes(q: dict) -> None:
+    """Remove o teclado inline da mensagem (só chamar no SUCESSO)."""
+    msg = q.get("message") or {}
+    mid = msg.get("message_id")
+    chat = str((msg.get("chat") or {}).get("id") or OWNER)
+    if not mid:
+        return
+    api("editMessageReplyMarkup",
+        json={"chat_id": chat, "message_id": mid,
+              "reply_markup": {"inline_keyboard": []}})
+
+
 def handle_callback(q: dict) -> None:
     data, cqid = q.get("data") or "", q.get("id") or ""
     chat = str((((q.get("message") or {}).get("chat") or {}).get("id") or OWNER))
-    api("answerCallbackQuery", json={"callback_query_id": cqid})
+    # Toast imediato no botão (para de girar) + confirmação em texto depois.
+    api("answerCallbackQuery", json={"callback_query_id": cqid,
+                                     "text": "⏳ processando..."})
     uid = ((q.get("from") or {}).get("id"))
     if not _is_owner(uid):
         return
     if data.startswith("ap:"):
         cid = data[3:]
-        day = _ap.find_day_of_cut(FACTORY_DATA, cid) or ""
+        day = _ap.find_day(DB_PATH, FACTORY_DATA, cid) or ""
         if not day:
             send_text(chat, f"⚠️ {cid} fora do pack.")
             return
         res = _ap.enfileirar(day, FACTORY_DATA, DB_PATH, cid)
         if not res.get("ok"):
+            if "não está pendente" in str(res.get("error", "")):
+                rows = [r for r in _ap.listar_fila(DB_PATH)
+                        if r.get("cut_id") == cid]
+                if rows:
+                    try:
+                        from config.settings import SLOTS_UTC as _SL
+                        h, m = _SL[int(rows[0].get("slot", 0)) % len(_SL)]
+                    except Exception:
+                        h, m = 12, 0
+                    send_text(chat, f"🕓 já está na fila: {rows[0].get('dia_alvo')} "
+                                    f"{h:02d}h{m:02d} (toque duplo, sem duplicar).")
+                    return
             send_text(chat, f"⚠️ {res.get('error', 'falha')}")
             return
         promo = _ap.promover_fila(FACTORY_DATA, DB_PATH, day)
@@ -105,11 +131,16 @@ def handle_callback(q: dict) -> None:
             h, m = _SL[int(res.get("slot", 0)) % len(_SL)]
         except Exception:
             h, m = 12, 0
+        _tirar_botoes(q)  # sucesso: sem re-clique
         send_text(chat, f"✅ na fila: {res.get('dia_alvo')} {h:02d}h{m:02d} "
                         f"(promo: {promo.get('agendados', 0)}).")
     elif data.startswith("rj:"):
         cid = data[3:]
-        _ap.rejeitar(DB_PATH, cid)
+        res = _ap.rejeitar(DB_PATH, cid)
+        if not res.get("ok"):
+            send_text(chat, f"⚠️ {res.get('error', 'falha')}")
+            return
+        _tirar_botoes(q)  # sucesso: sem re-clique
         send_text(chat, f"❌ descartado {cid} (nunca posta).")
     elif data.startswith("ver:"):
         cid = data[4:]
@@ -250,7 +281,7 @@ def main() -> int:
     API = f"https://api.telegram.org/bot{token}"
     off = get_offset()
     try:
-        data = api("getUpdates", json={"offset": off, "timeout": 50,
+        data = api("getUpdates", json={"offset": off, "timeout": 20,
                                        "allowed_updates": ["message", "callback_query"]})
     except Exception:
         return 0
@@ -268,7 +299,7 @@ def main() -> int:
             print(f"poll: offset {off} cego com {pend} pendente(s) — resetando.")
             set_offset(0)
             try:
-                data = api("getUpdates", json={"offset": 0, "timeout": 50,
+                data = api("getUpdates", json={"offset": 0, "timeout": 20,
                                                "allowed_updates": ["message", "callback_query"]})
                 updates = data.get("result") or []
                 print(f"poll: {len(updates)} update(s) após reset.")

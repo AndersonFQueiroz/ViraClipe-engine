@@ -26,6 +26,7 @@ MAX_DUR = 60.0
 OFFSET_TOL = 10.0  # segundos: mesmo momento, clipadores diferentes
 DEFAULT_DAYS = 7
 DEFAULT_FIRST = 20
+RODIZIO_JANELA = 7  # dias p/ streamer voltar a peso cheio após aparecer
 
 
 def fetch_clips(handle: str, client_id: str = "", client_secret: str = "",
@@ -157,6 +158,39 @@ def register_clip(con, clip: dict) -> None:
     )
 
 
+def dias_desde_rodizio(con, streamer: str, hoje: str) -> float:
+    """Dias desde que o streamer apareceu (inf = nunca; trava no futuro)."""
+    try:
+        row = con.execute("SELECT ultimo_dia FROM rodizio WHERE streamer=?",
+                          (streamer,)).fetchone()
+    except Exception:
+        return float("inf")
+    if not row or not row["ultimo_dia"]:
+        return float("inf")
+    try:
+        delta = (_dt.date.fromisoformat(hoje)
+                 - _dt.date.fromisoformat(str(row["ultimo_dia"])[:10])).days
+    except ValueError:
+        return float("inf")
+    return float(max(0, delta))
+
+
+def peso_rodizio(views: int, dias: float, janela: int = RODIZIO_JANELA) -> float:
+    """Views com penalidade de recência: ontem vale 1/7, semana+ vale cheio.
+
+    Viral gigante ainda fura o rodízio (7x views compensa 1 dia).
+    """
+    if dias == float("inf"):
+        return float(views)
+    return float(views) * min(dias, max(1, janela)) / max(1, janela)
+
+
+def marcar_rodizio(con, streamer: str, day: str) -> None:
+    con.execute("INSERT INTO rodizio(streamer, ultimo_dia) VALUES(?,?)"
+                " ON CONFLICT(streamer) DO UPDATE SET ultimo_dia=excluded.ultimo_dia",
+                (streamer, day))
+
+
 def discover_clips(day: str, db_path: Path, factory_data: Path,
                    max_clips_dia: int = 5, min_views: int = 10,
                    min_dur: float = MIN_DUR, max_dur: float = MAX_DUR,
@@ -189,7 +223,13 @@ def discover_clips(day: str, db_path: Path, factory_data: Path,
                 if is_clip_duplicate(con, c):
                     continue
                 novos.append(c)
-        novos.sort(key=lambda c: int(c.get("views") or 0), reverse=True)
+        # Rodízio: quem apareceu ontem vai p/ fim da fila (peso views ×
+        # recência); viral gigante ainda fura. Desempate: views puras.
+        for c in novos:
+            dias = dias_desde_rodizio(con, str(c.get("streamer") or "?"), day)
+            c["_peso"] = peso_rodizio(int(c.get("views") or 0), dias)
+        novos.sort(key=lambda c: (c.pop("_peso"), int(c.get("views") or 0)),
+                   reverse=True)
         # Diversifica: teto por streamer (ninguém engole os 5 slots sozinho).
         escolhidos = []
         por_streamer: dict[str, int] = {}
@@ -208,6 +248,7 @@ def discover_clips(day: str, db_path: Path, factory_data: Path,
         if registrar:
             for c in escolhidos:
                 register_clip(con, c)
+                marcar_rodizio(con, str(c.get("streamer") or "?"), day)
         con.commit()
     finally:
         con.close()
@@ -239,12 +280,17 @@ def download_clip(clip: dict, out_mp4: Path, runner=subprocess.run) -> bool:
         return False
 
 
-def mark_clips_usados(db_path: Path, clips: list[dict]) -> None:
-    """Registra clips como vistos APÓS corte OK (não queima falha)."""
+def mark_clips_usados(db_path: Path, clips: list[dict], day: str = "") -> None:
+    """Registra clips como vistos APÓS corte OK (não queima falha).
+
+    Marca o rodízio junto: streamer usado hoje volta ao fim da fila.
+    """
+    day = day or _dt.date.today().isoformat()
     con = _db.connect(db_path)
     try:
         for c in clips:
             register_clip(con, c)
+            marcar_rodizio(con, str(c.get("streamer") or "?"), day)
         con.commit()
     finally:
         con.close()
@@ -329,7 +375,7 @@ def process_clips_day(day: str, db_path: Path, factory_data: Path,
     finais = _render.render_day(day, factory_data, runner=runner)
     if finais:
         _pack.build_pack(day_dir, finais, keys=keys, db_path=db_path)
-        mark_clips_usados(db_path, ok_clips)
+        mark_clips_usados(db_path, ok_clips, day)
         print(f"clips: {len(finais)} final(is) + pack pronto.")
     return finais
 

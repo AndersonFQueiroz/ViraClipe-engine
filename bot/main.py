@@ -218,13 +218,20 @@ def run() -> int:
                 h, m = _SL[int(res.get("slot", 0)) % len(_SL)]
             except Exception:
                 h, m = 12, 0
+            from telegram import InlineKeyboardMarkup as _M
             await q.edit_message_caption(
                 caption=f"✅ na fila: {res.get('dia_alvo')} {h:02d}h{m:02d} "
-                        f"(promo: {promo.get('agendados', 0)}).")
+                        f"(promo: {promo.get('agendados', 0)}).",
+                reply_markup=_M([]))
         elif data.startswith("rj:"):
             cid = data[3:]
-            _ap.rejeitar(DB_PATH, cid)
-            await q.edit_message_caption(caption=f"❌ descartado {cid} (nunca posta).")
+            res = _ap.rejeitar(DB_PATH, cid)
+            if not res.get("ok"):
+                await q.edit_message_caption(caption=f"⚠️ {res.get('error', 'falha')}")
+                return
+            from telegram import InlineKeyboardMarkup as _M
+            await q.edit_message_caption(caption=f"❌ descartado {cid} (nunca posta).",
+                                         reply_markup=_M([]))
 
     async def _titulo_reply(u: Update, c: ContextTypes.DEFAULT_TYPE):
         # Responder a prévia com texto = define o título (IA refaz a descrição).

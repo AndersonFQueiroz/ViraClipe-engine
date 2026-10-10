@@ -14,12 +14,13 @@ SAMPLE_FPS = 1.0
 DETECT_WIDTH = 640
 TOP_W, TOP_H = 720, 720
 BOT_W, BOT_H = 720, 560
-# Crop APERTADO no rosto (só a câmera, sem repetir o jogo): altura = 1.8x a
-# altura mediana do rosto, limitada a [180, 320]px no espaço 1280x720, com
-# proporção exata do painel (720:560) p/ não esticar a cara. Rosto perto da
-# borda da facecam = box menor vaza menos jogo.
-FACE_MULT = 1.8
-FACE_MIN, FACE_MAX = 180, 320
+# Painelfolgado cabeça+ombros (padrão dos canais de corte): altura = 3.0x a
+# altura mediana do rosto, limitada a [300, 460]px no espaço 1280x720, com
+# proporção exata do painel (720:560) p/ não esticar a cara. Box Haar é menor
+# que a cabeça real (óculos/ângulo = detecção parcial): mínimo 300px impede a
+# cabeça de transbordar do painel. Rosto perto da borda = clamp vaza menos jogo.
+FACE_MULT = 3.0
+FACE_MIN, FACE_MAX = 300, 460
 
 
 def _cascade():
@@ -71,8 +72,8 @@ def sample_centers(mp4: Path, t_inicio: float, duracao: float,
                 img = cv2.imread(str(jpg), cv2.IMREAD_GRAYSCALE)
                 if img is None:
                     continue
-                faces = cascade.detectMultiScale(img, scaleFactor=1.2, minNeighbors=5,
-                                                 minSize=(40, 40))
+                faces = cascade.detectMultiScale(img, scaleFactor=1.2, minNeighbors=8,
+                                                  minSize=(70, 70))
                 if len(faces) == 0:
                     continue
                 x, y, w, h = max(faces, key=lambda b: b[2] * b[3])
@@ -87,10 +88,10 @@ def sample_centers(mp4: Path, t_inicio: float, duracao: float,
 def median_box(centers: list[tuple[float, float, float]],
                src_w: int = 1280, src_h: int = 720,
                box: int | None = None) -> tuple[int, int, int, int] | None:
-    """Caixa apertada no rosto (proporção do painel, clamp + par).
+    """Caixa folgada cabeça+ombros (proporção do painel, clamp + par).
 
-    Altura = 2.5x a mediana do rosto, clamp [FACE_MIN, FACE_MAX]; box fixo
-    só em teste legado. Rosto pequeno (facecam longe) = zoom maior.
+    Altura = 3.0x a mediana do rosto, clamp [FACE_MIN, FACE_MAX]; box fixo
+    só em teste legado. Detecção parcial nunca estoura o painel.
     """
     if not centers:
         return None

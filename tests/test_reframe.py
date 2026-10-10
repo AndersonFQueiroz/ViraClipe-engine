@@ -5,24 +5,33 @@ from factory import reframe as RF
 
 
 def test_median_box_clamp_par():
-    # rosto mediano 80px -> h=180 (mínimo), w=180*720/560=231.4->230 (par)
+    # detecção parcial 80px -> 240 -> mínimo 300, w=300*720/560=385.7->384 (par)
     box = RF.median_box([(100.0, 100.0, 80.0), (110.0, 120.0, 90.0), (105.0, 200.0, 70.0)])
     assert box is not None
     x, y, w, h = box
-    assert (w, h) == (230, 180)
+    assert (w, h) == (384, 300)
     assert x % 2 == 0 and y % 2 == 0
     assert 0 <= x <= 1280 - w and 0 <= y <= 720 - h
-    # mediana x=105 -> 105-154 <0 -> clamp 0
+    # mediana x=105 -> 105-192 <0 -> clamp 0
     assert x == 0
 
 
 def test_median_box_rosto_grande_limita():
-    # rosto mediano 300px -> 540 -> clamp no máximo 320
+    # rosto mediano 300px -> 900 -> clamp no máximo 460
     box = RF.median_box([(640.0, 360.0, 300.0)])
     assert box is not None
     x, y, w, h = box
-    assert h == 320 and w == 410
+    assert h == 460 and w == 590
     assert x % 2 == 0 and y % 2 == 0
+
+
+def test_median_box_cabeca_nao_transborda():
+    # cabeça real ~1.4x o box Haar: tem que caber com folga no painel 560
+    box = RF.median_box([(640.0, 360.0, 150.0)])
+    assert box is not None
+    x, y, w, h = box
+    assert h == 450  # 150*3.0
+    assert 210 / h <= 0.6  # cabeça de ~210px ocupa <60% do painel
 
 
 def test_median_box_vazio():

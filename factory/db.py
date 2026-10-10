@@ -85,6 +85,10 @@ CREATE TABLE IF NOT EXISTS pesos_learned(
   amostras INTEGER NOT NULL DEFAULT 0,
   atualizado_em TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS rodizio(
+  streamer TEXT PRIMARY KEY,
+  ultimo_dia TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS clips_vistos(
   clip_id TEXT PRIMARY KEY,
   streamer TEXT NOT NULL,
