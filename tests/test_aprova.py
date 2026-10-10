@@ -154,7 +154,7 @@ def test_definir_titulo_usa_base_ia(tmp_path):
     assert "@s" in res["descricao"]  # resposta mostra a descrição nova
     pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
     assert "meu titulo brabo" in pack["titles"]["c1"]
-    assert "@s" in pack["captions"]["c1"]
+    assert pack["captions"]["c1"] == "meu titulo brabo"  # só título, sem desc
 
 
 def test_definir_titulo_vod_regen_descricao(tmp_path, monkeypatch):
@@ -192,7 +192,7 @@ def test_definir_descricao_e_fila_sync(tmp_path):
     res = A.definir_descricao(fac, dbp, "clip-A", "d: minha desc")
     assert res["ok"] and res["descricao"] == "minha desc"
     pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-    assert "minha desc" in pack["captions"]["c1"]
+    assert pack["captions"]["c1"] == "T"  # só título mesmo com d: nova
     # vazia recusa
     assert not A.definir_descricao(fac, dbp, "clip-A", "  ")["ok"]
 
@@ -229,7 +229,7 @@ def test_definir_jogo_vod(tmp_path):
     res = A.definir_jogo(fac, dbp, "twitch:9-100", "Jogo Lindo")
     assert res["ok"] and res["jogo"] == "Jogo Lindo"
     pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-    assert "🎮 Jogo Lindo" in pack["captions"]["c1"]
+    assert pack["captions"]["c1"] == "T"  # só título, sem linha de jogo
     assert not A.definir_jogo(fac, dbp, "twitch:9-100", "  ")["ok"]
 
 
@@ -250,9 +250,9 @@ def test_tabela_primeiro_sem_arquivos(tmp_path):
     con.close()
     assert A.find_day(dbp, fac, "clip-Z") == "2026-10-02"
     from factory import pack_redes as _P
-    assert "🎮 Jogo Novo" in _P.caption_for({"video_id": "clip:z", "streamer": "s",
-                                            "titulo": "T", "descricao": "d",
-                                            "hashtags": [], "jogo": "Jogo Novo"})[0]
+    assert _P.caption_for({"video_id": "clip:z", "streamer": "s",
+                            "titulo": "T", "descricao": "d",
+                            "hashtags": [], "jogo": "Jogo Novo"})[0] == "T"
     res = A.definir_jogo(fac, dbp, "clip-Z", "Jogo Novo")
     assert res["ok"] and res["jogo"] == "Jogo Novo"
     res2 = A.definir_titulo(fac, dbp, "clip-Z", "Titulo Novo",

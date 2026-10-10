@@ -309,18 +309,20 @@ def _clip_to_scored(clip: dict, mp4: Path, legenda: dict | None = None) -> dict:
         slug = "".join(ch for ch in jogo.lower() if ch.isalnum())[:30]
         if slug and slug not in [str(t).lower() for t in tags]:
             tags = ([slug] + tags)[:5]
+    original = str(clip.get("titulo_clip") or "").strip()
     return {
         "cut_id": f"clip-{cid[:32]}",
         "video_id": f"clip:{cid}",
         "streamer": streamer,
         "url": str(clip.get("url") or ""),
         "t_inicio": 0.0, "t_fim": dur, "duracao": dur,
-        "chat": min(100.0, views / 10.0),  # views viram sinal 0-100
+        "chat": min(100.0, views / 10.0),  # views/10
         "audio": 50.0,
         "viral": leg.get("viral_clip"),
         "motivo": leg.get("motivo", ""),
         "score_final": min(100.0, views / 10.0),
-        "titulo": str(leg.get("titulo") or clip.get("titulo_clip") or "Melhor momento")[:90],
+        # Regra do dono 10/10: título original do clip (IA só se vazio/VOD).
+        "titulo": (original or str(leg.get("titulo") or "Melhor momento"))[:90],
         "descricao": str(leg.get("descricao") or f"@{streamer} na Twitch 🎮"),
         "hashtags": tags,
         "jogo": jogo,

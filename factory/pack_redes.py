@@ -104,31 +104,17 @@ def prune_previews(db_path: Path, manter_dias: int = 3) -> int:
 
 
 def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
-    tags_base = _live_tags()
-    cta = _live_cta()
+    """Caption = só o título (regra do dono 10/10: sem descrição IA).
+
+    Título de clip = original da Twitch (na maioria já é bom); VOD = IA/dono.
+    Hashtags/handle/desc continuam no banco, fora do texto publicado.
+    """
+    _ = network  # formato único p/ IG/TT/YT
     handle = _live_handle()
-    titulo = str(corte.get("titulo") or "Melhor momento")[:90]
     streamer = str(corte.get("streamer") or "")
-    url = str(corte.get("url") or "")
-    desc = str(corte.get("descricao") or "")
-    tags = [str(t).lstrip("#") for t in (corte.get("hashtags") or [])][:4]
-    if network == "tiktok":
-        head = f"{titulo}"
-        body = f"@{streamer} 🔥" if streamer else ""
-        tail = " ".join(f"#{t}" for t in (tags or tags_base[:3]))
-        cap = f"{head}\n{body}\n{tail}\n{handle}"
-    else:
-        # Regra do dono: sem link/ID em nada — só @ + breve descrição.
-        # Jogo só aparece se 100% certo (API p/ clips, dono p/ VOD).
-        lines = [f"🔥 {titulo}", f"🎮 @{streamer}" if streamer else "", desc]
-        jogo = str(corte.get("jogo") or "").strip()[:60]
-        if jogo:
-            lines.append(f"🎮 {jogo}")
-        lines.append(" ".join(f"#{t}" for t in (tags or tags_base)))
-        lines.append(handle)
-        cap = "\n".join(l for l in lines if l)
+    titulo = str(corte.get("titulo") or "Melhor momento")[:90]
     first = f"Créditos: @{streamer}\nSegue {handle} pra mais!"
-    return cap, first
+    return titulo, first
 
 
 def build_pack(day_dir: Path, finais: list[dict],
