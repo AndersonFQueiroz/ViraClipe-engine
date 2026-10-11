@@ -141,28 +141,27 @@ def test_definir_titulo_usa_base_ia(tmp_path):
             "videos": {"c1": "v1"},
             "captions": {}, "captions_tt": {},
             "creditos": {"c1": {"cut_id": "clip-AbcDef123"}}}), encoding="utf-8")
-    fake_leg = lambda *a, **k: {"titulo": "MEU TITULO", "descricao": "@s festa",
-                                "hashtags": ["a"], "viral_clip": 80, "motivo": "m"}
     import factory.score as _S
     _S_orig = _S.legendar_clip
-    _S.legendar_clip = lambda *a, **k: fake_leg()
+    chamadas = []
+    _S.legendar_clip = lambda *a, **k: chamadas.append(1) or {}
     try:
         res = A.definir_titulo(fac, dbp, "clip-AbcDef123", "meu titulo brabo")
     finally:
         _S.legendar_clip = _S_orig
     assert res["ok"] and res["titulo"] == "meu titulo brabo"
-    assert "@s" in res["descricao"]  # resposta mostra a descrição nova
+    assert chamadas == []  # sem IA: título do dono vale puro
+    assert "descricao" not in res
     pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
     assert "meu titulo brabo" in pack["titles"]["c1"]
     assert pack["captions"]["c1"] == "meu titulo brabo"  # só título, sem desc
 
 
-def test_definir_titulo_vod_regen_descricao(tmp_path, monkeypatch):
+def test_definir_titulo_vod_sem_ia(tmp_path, monkeypatch):
     import factory.score as _S
+    chamadas = []
     monkeypatch.setattr(_S, "legendar_clip",
-                        lambda *a, **k: {"titulo": "T", "descricao": "@s susto",
-                                         "hashtags": ["h"], "viral_clip": 70,
-                                         "motivo": "m"})
+                        lambda *a, **k: chamadas.append(1) or {"titulo": "T"})
     dbp, fac = _setup(tmp_path)
     day_dir = fac / "2026-09-28"
     (day_dir / "real.mp4").write_bytes(b"x" * 200_000)
@@ -177,7 +176,8 @@ def test_definir_titulo_vod_regen_descricao(tmp_path, monkeypatch):
             "videos": {"c1": "v1"}, "captions": {}, "captions_tt": {},
             "creditos": {"c1": {"cut_id": "twitch:9-100"}}}), encoding="utf-8")
     res = A.definir_titulo(fac, dbp, "twitch:9-100", "susto brabo")
-    assert res["ok"] and res["descricao"] == "@s susto"
+    assert res["ok"] and res["titulo"] == "susto brabo"
+    assert chamadas == [] and "descricao" not in res  # sem IA nem desc
 
 
 def test_definir_descricao_e_fila_sync(tmp_path):

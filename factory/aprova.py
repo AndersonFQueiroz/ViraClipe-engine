@@ -316,34 +316,20 @@ def _salvar_corte(factory_data: Path, db_path: Path, day: str | None, cut_id: st
 def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
                    novo_titulo: str, model: str = "gemini-3.5-flash-lite",
                    api_key: str = "", gemini_fn=None) -> dict:
-    """Título do dono vira base: IA refaz a descrição em cima dele.
-    Funciona só com a tabela (sem arquivos). Nunca levanta.
-    """
-    from . import score as _score
+    """Título do dono vale puro: sem IA, sem descrição (regra do dono 10/10).
 
+    Não chama o Gemini (economiza call e evita texto cringe). Funciona só
+    com a tabela (sem arquivos). Nunca levanta.
+    """
     novo_titulo = (novo_titulo or "").strip()[:90]
     if not novo_titulo:
         return {"ok": False, "error": "título vazio"}
     day, base, tem_arq = _base_corte(factory_data, db_path, cut_id)
     if not day and not base.get("titulo") and not base.get("streamer"):
         return {"ok": False, "error": f"cut {cut_id} desconhecido"}
-    refs: list[str] = []
-    if tem_arq and day and cut_id.startswith("clip-"):
-        try:
-            clips = json.loads((factory_data / day / "clips.json").read_text(encoding="utf-8"))
-            refs = [str(x.get("titulo_clip") or "") for x in clips
-                    if not str(x.get("clip_id", "")).startswith(cut_id[5:])][:5]
-        except Exception:
-            refs = []
-    leg = _score.legendar_clip({**base, "titulo_clip": novo_titulo},
-                               model, api_key or os.environ.get("GEMINI_API_KEY", ""),
-                               gemini_fn=gemini_fn, refs=refs)
-    patch = {"titulo": novo_titulo,
-             "descricao": str(leg.get("descricao") or f"@{base.get('streamer', '')}"),
-             "hashtags": list(leg.get("hashtags") or [])}
-    fila_st = _salvar_corte(factory_data, db_path, day, cut_id, patch, tem_arq)
-    out = {"ok": True, "cut_id": cut_id, "titulo": novo_titulo,
-           "descricao": patch["descricao"]}
+    fila_st = _salvar_corte(factory_data, db_path, day, cut_id,
+                            {"titulo": novo_titulo}, tem_arq)
+    out = {"ok": True, "cut_id": cut_id, "titulo": novo_titulo}
     if fila_st == "agendado":
         out["aviso"] = "já agendado no Buffer — título novo vale pros próximos"
     return out
@@ -460,7 +446,8 @@ def aplicar_resposta(factory_data: Path, db_path: Path, cut_id: str,
         if not r.get("ok"):
             return {"ok": False, "error": r.get("error", "falha no título")}
         out["titulo"] = r["titulo"]
-        out["descricao"] = r.get("descricao", "")  # IA; `d:` por cima se vier
+        if r.get("descricao"):
+            out["descricao"] = r["descricao"]  # só `d:` põe descrição
         out["aplicado"].append("titulo")
         if r.get("aviso"):
             out.setdefault("avisos", []).append(r["aviso"])

@@ -27,7 +27,7 @@ HELP_TXT = (
     "📺 *Prévias* (chegam sozinhas):\n"
     "• ✅ = entra na fila (hoje ou próximo dia livre)\n"
     "• ❌ = descarta (nunca posta)\n"
-    "• ↩️ responde a prévia com texto = *título seu* (IA refaz a descrição)\n"
+    "• ↩️ responde a prévia com texto = *título seu* (vale puro, sem IA)\n"
     "• ↩️ responde com `d:` + texto = *descrição sua* (sem IA)\n"
     "• ↩️ responde com `jogo:` + nome = *jogo* (VOD; clips já vêm com jogo)\n"
     "• ↩️ tudo de uma vez (1 linha cada): título + `d:` + `jogo:`\n\n"
@@ -244,8 +244,22 @@ def run() -> int:
             import re as _re
             cap = rep.caption or ""
             print(f"titulo-reply: cap={cap[:120]!r}", flush=True)
-            m = _re.search(r"🆔 `([^`]+)`", cap)
-            cid = m.group(1) if m else None
+            cid = None
+            try:
+                kb = rep.reply_markup.inline_keyboard if rep.reply_markup else []
+                for row in kb or []:
+                    for b in row or []:
+                        d = str((b.callback_data if b else "") or "")
+                        if d[:3] in ("ap:", "rj:") and len(d) > 3:
+                            cid = d[3:]
+                            break
+                    if cid:
+                        break
+            except Exception:
+                cid = None
+            if not cid:
+                m = _re.search(r"🆔 `([^`]+)`", cap)
+                cid = m.group(1) if m else None
             if not cid and rep.video and rep.video.file_unique_id:
                 cid = _ap.cut_por_video(FACTORY_DATA, rep.video.file_unique_id, db_path=DB_PATH)
                 print(f"titulo-reply: por-video -> {cid}", flush=True)
