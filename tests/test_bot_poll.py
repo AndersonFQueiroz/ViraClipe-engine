@@ -156,6 +156,8 @@ def test_callback_nao_dono_ignorado(tmp_path, monkeypatch):
 
 def test_reply_titulo_chama_definir(tmp_path, monkeypatch):
     bp, sent = _load(monkeypatch, tmp_path)
+    from pathlib import Path as _P
+    _prev_com_dia(_P(tmp_path) / "t.db")
     chamadas = []
     monkeypatch.setattr(bp._ap, "definir_titulo",
                         lambda *a, **k: chamadas.append(a) or {"ok": True, "titulo": "T", "descricao": "D"})
@@ -167,6 +169,8 @@ def test_reply_titulo_chama_definir(tmp_path, monkeypatch):
 
 def test_reply_jogo_nao_vira_titulo(tmp_path, monkeypatch):
     bp, sent = _load(monkeypatch, tmp_path)
+    from pathlib import Path as _P
+    _prev_com_dia(_P(tmp_path) / "t.db")
     chamadas = []
     monkeypatch.setattr(bp._ap, "definir_jogo",
                         lambda *a, **k: chamadas.append(a) or {"ok": True, "jogo": "GTA V"})
@@ -217,6 +221,87 @@ def test_watchdog_dispara_quando_falta(tmp_path, monkeypatch):
     import datetime as _dt2
     bp.watchdog_diaria(_dt2.datetime(2026, 10, 8, 15, 0, tzinfo=_dt2.timezone.utc))
     assert "dispatches" in chamadas  # disparou (nada hoje)
+
+
+def _zip_db_com_preview(tmp_path):
+    import io
+    import sqlite3
+    import zipfile
+    from factory import db as _db
+    from pathlib import Path
+    src = Path(tmp_path) / "remoto.db"
+    _db.init_db(src)
+    con = _db.connect(src)
+    con.execute("INSERT INTO previews(cut_id, streamer, titulo, dia)"
+                " VALUES('clip-N','s','TN','2026-10-11')")
+    con.execute("INSERT INTO cortes(cut_id, video_id, streamer, t_inicio, duracao, score_final, titulo, status)"
+                " VALUES('clip-N','clip:n','s',0,30,80,'TN','qc_ok')")
+    con.commit()
+    con.close()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.write(src, "viraclipe.db")
+    return buf.getvalue()
+
+
+def test_sync_mescla_banco_da_diaria(tmp_path, monkeypatch):
+    import datetime as _dt
+    bp, sent = _load(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "X/Y")
+    blob = _zip_db_com_preview(tmp_path)
+    hoje = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+
+    class R:
+        def __init__(self, payload=None, raw=None):
+            self._p, self._raw = payload, raw
+        def raise_for_status(self): pass
+        def json(self): return self._p
+        def iter_content(self, n):
+            yield self._raw
+
+    def fake_get(url, **k):
+        if url.endswith("runs?per_page=5"):
+            if "export-db" in url:
+                return R({"workflow_runs": []})
+            return R({"workflow_runs": [{"id": 777, "run_started_at": hoje + "T11:00:00Z",
+                                         "conclusion": "success"}]})
+        if "/artifacts" in url:
+            return R({"artifacts": [{"name": "viraclipe-db",
+                                      "archive_download_url": "http://x/dl"}]})
+        return R({}, blob)
+    monkeypatch.setattr(bp.requests, "get", fake_get)
+    assert bp.sincronizar_diaria() is True
+    from factory import db as _db
+    from pathlib import Path
+    con = _db.connect(Path(tmp_path) / "t.db")
+    assert con.execute("SELECT titulo FROM previews WHERE cut_id='clip-N'").fetchone()[0] == "TN"
+    con.close()
+    assert bp.sincronizar_diaria() is False  # mesma run: não baixa 2x
+
+
+def test_sync_sem_token(tmp_path, monkeypatch):
+    bp, sent = _load(monkeypatch, tmp_path)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert bp.sincronizar_diaria() is False
+
+
+def test_watchdog_quieto_antes_das_10(tmp_path, monkeypatch):
+    import datetime as _dt2
+    bp, sent = _load(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "X/Y")
+    chamadas = []
+
+    class R:
+        def raise_for_status(self): pass
+        def json(self): return {"workflow_runs": []}
+    monkeypatch.setattr(bp.requests, "post",
+                        lambda url, **k: chamadas.append(url) or R())
+    monkeypatch.setattr(bp.requests, "get",
+                        lambda url, **k: chamadas.append(url) or R())
+    bp.watchdog_diaria(_dt2.datetime(2026, 10, 8, 9, 59, tzinfo=_dt2.timezone.utc))
+    assert chamadas == []  # nem consulta: schedule ainda pode disparar
 
 
 def test_watchdog_quieto_quando_rodou(tmp_path, monkeypatch):

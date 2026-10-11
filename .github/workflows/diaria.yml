@@ -119,6 +119,14 @@ jobs:
         with:
           path: data/viraclipe.db
           key: viraclipe-db-${{ github.run_id }}
+      - name: Exporta banco p/ poller (auto-sync Railway)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: viraclipe-db
+          path: data/viraclipe.db
+          if-no-files-found: warn
+          retention-days: 7
       - name: Avisa dono no Telegram (sempre)
         if: always()
         env:

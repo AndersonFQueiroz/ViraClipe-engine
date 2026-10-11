@@ -106,6 +106,8 @@ def handle_callback(q: dict) -> None:
     if data.startswith("ap:"):
         cid = data[3:]
         day = _ap.find_day(DB_PATH, FACTORY_DATA, cid) or ""
+        if not day and sincronizar_diaria():
+            day = _ap.find_day(DB_PATH, FACTORY_DATA, cid) or ""
         if not day:
             send_text(chat, f"⚠️ {cid} fora do pack.")
             return
@@ -152,6 +154,104 @@ def handle_callback(q: dict) -> None:
 
 def _api_token() -> str:
     return (API.rsplit("/bot", 1)[-1] if "/bot" in API else "")
+
+
+_SYNC_WF = ("diaria.yml", "export-db.yml")
+
+
+def _cut_conhecido(cid: str) -> bool:
+    day, base, _ = _ap._base_corte(FACTORY_DATA, DB_PATH, cid)
+    return bool(day or base.get("streamer") or base.get("titulo"))
+
+
+def sincronizar_diaria() -> bool:
+    """Mescla previews/cortes/fila do banco da última diaria de hoje.
+
+    Auto-cura da divergência GH (diaria escreve) ↔ Railway (poller lê):
+    baixa o artifact `viraclipe-db` da run de hoje e dá INSERT OR REPLACE.
+    Marca kv=db_sync_run p/ não baixar 2x. Sem token/sem run: False mudo.
+    """
+    import datetime as _dt
+    import tempfile
+    import zipfile
+
+    gh_token = os.environ.get("GITHUB_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not (gh_token and repo):
+        return False
+    try:
+        h = {"Authorization": f"Bearer {gh_token}",
+             "Accept": "application/vnd.github+json"}
+        hoje = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+        alvo = None
+        for wf in _SYNC_WF:
+            r = requests.get(
+                f"https://api.github.com/repos/{repo}/actions/workflows/"
+                f"{wf}/runs?per_page=5", headers=h, timeout=30)
+            r.raise_for_status()
+            for run in (r.json().get("workflow_runs") or []):
+                ini = str(run.get("run_started_at") or run.get("created_at") or "")[:10]
+                if ini == hoje and run.get("conclusion") == "success":
+                    alvo = run
+                    break
+            if alvo is not None:
+                break
+        if alvo is None:
+            return False
+        con0 = _db.connect(DB_PATH)
+        try:
+            sync = con0.execute("SELECT valor FROM kv WHERE chave='db_sync_run'").fetchone()
+        finally:
+            con0.close()
+        if sync and sync[0] == str(alvo["id"]):
+            return False  # mesma run já mesclada
+        arts = requests.get(
+            f"https://api.github.com/repos/{repo}/actions/runs/"
+            f"{alvo['id']}/artifacts", headers=h, timeout=30).json()
+        url = next((a.get("archive_download_url")
+                    for a in (arts.get("artifacts") or [])
+                    if a.get("name") == "viraclipe-db"), None)
+        if not url:
+            return False
+        z = requests.get(url, headers=h, timeout=900, stream=True)
+        z.raise_for_status()
+        with tempfile.TemporaryDirectory(prefix="syncdb-") as tmp:
+            zp = str(Path(tmp) / "db.zip")
+            with open(zp, "wb") as fh:
+                for chunk in z.iter_content(1 << 20):
+                    if chunk:
+                        fh.write(chunk)
+            with zipfile.ZipFile(zp) as zf:
+                names = [n for n in zf.namelist() if n.endswith("viraclipe.db")]
+                if not names:
+                    return False
+                zf.extract(names[0], tmp)
+                src = str(Path(tmp) / names[0])
+            con = _db.connect(DB_PATH)
+            try:
+                con.execute("ATTACH ? AS remoto", (src,))
+                try:
+                    for tbl in ("previews", "cortes", "fila"):
+                        cols = [r[1] for r in
+                                con.execute(f"PRAGMA table_info({tbl})").fetchall()]
+                        if not cols:
+                            continue
+                        cl = ",".join(cols)
+                        con.execute(
+                            f"INSERT OR REPLACE INTO {tbl}({cl}) "
+                            f"SELECT {cl} FROM remoto.{tbl}")
+                    con.execute("INSERT OR REPLACE INTO kv(chave, valor)"
+                                " VALUES('db_sync_run',?)", (str(alvo["id"]),))
+                    con.commit()
+                finally:
+                    con.execute("DETACH remoto")
+            finally:
+                con.close()
+        print(f"sync-diaria: banco da run {alvo['id']} mesclado.")
+        return True
+    except Exception as exc:
+        print(f"sync-diaria: {type(exc).__name__} (segue sem sync).")
+        return False
 
 
 def handle_message(m: dict) -> None:
@@ -226,6 +326,11 @@ def handle_message(m: dict) -> None:
             cid = _ap.cut_por_titulo(FACTORY_DATA, mt2.group(1))
     if not cid:
         return
+    if not _cut_conhecido(cid):
+        send_text(chat, "🔄 prévia de hoje ainda sincronizando — 1 min e reenvie.")
+        sincronizar_diaria()
+        if not _cut_conhecido(cid):
+            return
     parts = _ap.parse_resposta(text)
     if not parts:
         return
@@ -236,8 +341,10 @@ def handle_message(m: dict) -> None:
 
 
 def watchdog_diaria(agora=None) -> None:
-    """Se a diaria de hoje não rodou (schedule falhou) e já passou das 12h
-    UTC, dispara via API e loga. Auto-cura sem ninguém mexer."""
+    """Se a diaria de hoje não rodou (schedule falhou) e já passou das 10h
+    UTC (7h BRT, 2h antes do 1º slot), dispara via API e loga.
+    Auto-cura sem ninguém mexer. Exige GITHUB_TOKEN + GITHUB_REPOSITORY
+    no ambiente (no Railway viram vars do serviço; sem elas, mudo)."""
     import datetime as _dt
 
     gh_token = os.environ.get("GITHUB_TOKEN", "")
@@ -246,7 +353,7 @@ def watchdog_diaria(agora=None) -> None:
         return
     try:
         agora = agora or _dt.datetime.now(_dt.timezone.utc)
-        if agora.hour < 12:
+        if agora.hour < 10:
             return  # schedule ainda pode disparar sozinho
         h = {"Authorization": f"Bearer {gh_token}",
              "Accept": "application/vnd.github+json"}
