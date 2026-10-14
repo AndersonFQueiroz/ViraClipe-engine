@@ -280,10 +280,66 @@ def test_sync_mescla_banco_da_diaria(tmp_path, monkeypatch):
     assert bp.sincronizar_diaria() is False  # mesma run: não baixa 2x
 
 
+def test_sync_pula_run_sem_artifact(tmp_path, monkeypatch):
+    import datetime as _dt
+    bp, sent = _load(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "X/Y")
+    blob = _zip_db_com_preview(tmp_path)
+    hoje = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
+
+    class R:
+        def __init__(self, payload=None, raw=None):
+            self._p, self._raw = payload, raw
+        def raise_for_status(self): pass
+        def json(self): return self._p
+        def iter_content(self, n):
+            yield self._raw
+
+    def fake_get(url, **k):
+        if url.endswith("runs?per_page=5"):
+            if "export-db" in url:
+                return R({"workflow_runs": [
+                    {"id": 555, "run_started_at": hoje + "T10:00:00Z",
+                     "created_at": hoje + "T10:00:00Z", "conclusion": "success"}]})
+            return R({"workflow_runs": [
+                {"id": 999, "run_started_at": hoje + "T12:00:00Z",
+                 "created_at": hoje + "T12:00:00Z", "conclusion": "success"}]})
+        if "/artifacts" in url:
+            if "/999/" in url:
+                return R({"artifacts": [{"name": "viraclipe-day"}]})  # sem db
+            return R({"artifacts": [{"name": "viraclipe-db",
+                                     "archive_download_url": "http://x/dl"}]})
+        return R({}, blob)
+    monkeypatch.setattr(bp.requests, "get", fake_get)
+    assert bp.sincronizar_diaria() is True  # caiu na 555, não na 999
+    from factory import db as _db
+    from pathlib import Path
+    con = _db.connect(Path(tmp_path) / "t.db")
+    mk = con.execute("SELECT valor FROM kv WHERE chave='db_sync_run'").fetchone()[0]
+    con.close()
+    assert "555" in mk and "999" not in mk
+
+
 def test_sync_sem_token(tmp_path, monkeypatch):
     bp, sent = _load(monkeypatch, tmp_path)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     assert bp.sincronizar_diaria() is False
+
+
+def test_reply_resolve_por_botao_sem_id_no_caption(tmp_path, monkeypatch):
+    """Caption sem 🆔 (Markdown comeu): cut vem do botão da citada."""
+    bp, sent = _load(monkeypatch, tmp_path)
+    from pathlib import Path as _P
+    _prev_com_dia(_P(tmp_path) / "t.db")
+    chamadas = []
+    monkeypatch.setattr(bp._ap, "definir_titulo",
+                        lambda *a, **k: chamadas.append(a) or {"ok": True, "titulo": "T", "descricao": "D"})
+    kb = {"inline_keyboard": [[{"text": "✅ Aprovar", "callback_data": "ap:clip-X"}]]}
+    bp.handle_message({"chat": {"id": 99}, "from": {"id": 99}, "text": "titulo novo",
+                       "reply_to_message": {"caption": "PRÉVIA sem id",
+                                            "reply_markup": kb}})
+    assert chamadas and chamadas[0][2] == "clip-X"
 
 
 def test_watchdog_quieto_antes_das_10(tmp_path, monkeypatch):

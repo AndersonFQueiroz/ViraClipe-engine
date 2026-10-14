@@ -648,8 +648,9 @@ def promover_fila(factory_data: Path, db_path: Path, hoje: str = "",
     up = uploader or _up.upload
     ok, fail = 0, []
     for r in rows:
+        # mp4 vazio (fila sem arquivos) = Path(".") que EXISTE: checar is_file.
         mp4p = Path(str(r["mp4"] or ""))
-        if mp4p.exists():
+        if str(r["mp4"] or "") and mp4p.is_file():
             url = up(mp4p)
         else:
             # Sem arquivo (nuvem): usa o blob da tabela previews.

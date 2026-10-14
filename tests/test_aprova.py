@@ -120,6 +120,32 @@ def test_enfileirar_e_promover(tmp_path, monkeypatch):
     assert st == "agendado"
 
 
+def test_promover_fileless_usa_blob(tmp_path, monkeypatch):
+    """Fila sem arquivo (mp4=''): Path('.') existe — tem que ir pro blob."""
+    import datetime as _dt
+    monkeypatch.setenv("BUFFER_API_KEY", "tok")
+    monkeypatch.chdir(tmp_path)  # Path(".") existe aqui de propósito
+    dbp, fac = _setup(tmp_path)
+    con = A._db.connect(dbp)
+    con.execute("INSERT INTO previews(cut_id, streamer, titulo, dia, mp4)"
+                " VALUES('clip-F','s','TF','2026-09-28',?)", (b"z" * 200_000,))
+    con.execute("INSERT INTO cortes(cut_id, video_id, streamer, t_inicio, duracao, score_final, titulo, status)"
+                " VALUES('clip-F','clip:f','s',0,30,80,'TF','qc_ok')")
+    con.execute("INSERT INTO fila(cut_id, mp4, url, titulo, caption, caption_tt, dia_alvo, slot, status, criado_em)"
+                " VALUES('clip-F','','u','TF','C','C',?,0,'na_fila',?)",
+                (_dt.date.today().isoformat(), _dt.date.today().isoformat()))
+    con.commit()
+    con.close()
+    vistos = []
+    up = lambda p: vistos.append(str(p)) or "https://cdn/x.mp4"
+    ch = lambda t: {"instagram": "i"}
+    cr = lambda *a, **k: "p1"
+    out = A.promover_fila(fac, dbp, _dt.date.today().isoformat(),
+                          channels_fn=ch, create_fn=cr, uploader=up)
+    assert out.get("agendados") == 1, out
+    assert vistos and vistos[0].endswith(".mp4") and vistos[0] != "."
+
+
 def test_definir_titulo_usa_base_ia(tmp_path):
     dbp, fac = _setup(tmp_path)
     day_dir = fac / "2026-09-28"

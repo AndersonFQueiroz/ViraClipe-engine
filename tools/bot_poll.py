@@ -183,7 +183,7 @@ def sincronizar_diaria() -> bool:
         h = {"Authorization": f"Bearer {gh_token}",
              "Accept": "application/vnd.github+json"}
         hoje = _dt.datetime.now(_dt.timezone.utc).date().isoformat()
-        alvo = None
+        cands = []
         for wf in _SYNC_WF:
             r = requests.get(
                 f"https://api.github.com/repos/{repo}/actions/workflows/"
@@ -192,26 +192,29 @@ def sincronizar_diaria() -> bool:
             for run in (r.json().get("workflow_runs") or []):
                 ini = str(run.get("run_started_at") or run.get("created_at") or "")[:10]
                 if ini == hoje and run.get("conclusion") == "success":
-                    alvo = run
-                    break
-            if alvo is not None:
-                break
-        if alvo is None:
+                    cands.append(run)
+        if not cands:
             return False
         con0 = _db.connect(DB_PATH)
         try:
             sync = con0.execute("SELECT valor FROM kv WHERE chave='db_sync_run'").fetchone()
         finally:
             con0.close()
-        if sync and sync[0] == str(alvo["id"]):
-            return False  # mesma run já mesclada
-        arts = requests.get(
-            f"https://api.github.com/repos/{repo}/actions/runs/"
-            f"{alvo['id']}/artifacts", headers=h, timeout=30).json()
-        url = next((a.get("archive_download_url")
-                    for a in (arts.get("artifacts") or [])
-                    if a.get("name") == "viraclipe-db"), None)
-        if not url:
+        synced = (sync[0] if sync else "").split(",")
+        alvo, url = None, None
+        for run in sorted(cands, key=lambda r: str(r.get("created_at") or ""), reverse=True):
+            if str(run["id"]) in synced:
+                continue  # já mesclada sem resolver (não baixa 2x)
+            arts = requests.get(
+                f"https://api.github.com/repos/{repo}/actions/runs/"
+                f"{run['id']}/artifacts", headers=h, timeout=30).json()
+            url = next((a.get("archive_download_url")
+                        for a in (arts.get("artifacts") or [])
+                        if a.get("name") == "viraclipe-db"), None)
+            if url:
+                alvo = run
+                break
+        if alvo is None or not url:
             return False
         z = requests.get(url, headers=h, timeout=900, stream=True)
         z.raise_for_status()
@@ -240,8 +243,11 @@ def sincronizar_diaria() -> bool:
                         con.execute(
                             f"INSERT OR REPLACE INTO {tbl}({cl}) "
                             f"SELECT {cl} FROM remoto.{tbl}")
+                    visto = ",".join([s for s in
+                                          ((sync[0] if sync else "") + ","
+                                           + str(alvo["id"])).split(",") if s])
                     con.execute("INSERT OR REPLACE INTO kv(chave, valor)"
-                                " VALUES('db_sync_run',?)", (str(alvo["id"]),))
+                                " VALUES('db_sync_run',?)", (visto,))
                     con.commit()
                 finally:
                     con.execute("DETACH remoto")
@@ -258,6 +264,8 @@ def handle_message(m: dict) -> None:
     chat = str(((m.get("chat") or {}).get("id") or ""))
     uid = ((m.get("from") or {}).get("id"))
     text = (m.get("text") or "").strip()
+    print(f"msg: uid={uid} owner={_is_owner(uid)} len={len(text)} "
+          f"reply={bool(m.get('reply_to_message'))} txt={text[:40]!r}", flush=True)
     if not text or not _is_owner(uid):
         return
     if text.startswith("/"):
@@ -314,16 +322,33 @@ def handle_message(m: dict) -> None:
         return
     rep = m.get("reply_to_message") or {}
     cap = rep.get("caption") or ""
+    print(f"dbg: repkeys={sorted(rep.keys())} caplen={len(cap)} "
+          f"cap0={cap[:60]!r} hasvid={bool(rep.get('video'))}", flush=True)
     if not cap:
         return
-    mt = re.search(r"🆔 `([^`]+)`", cap)
-    cid = mt.group(1) if mt else None
+    cid = None
+    try:
+        kb = (rep.get("reply_markup") or {}).get("inline_keyboard") or []
+        for row in kb:
+            for b in row or []:
+                d = str((b or {}).get("callback_data") or "")
+                if d[:3] in ("ap:", "rj:") and len(d) > 3:
+                    cid = d[3:]
+                    break
+            if cid:
+                break
+    except Exception:
+        cid = None
+    if not cid:
+        mt = re.search(r"🆔 `([^`]+)`", cap)
+        cid = mt.group(1) if mt else None
     if not cid and (rep.get("video") or {}).get("file_unique_id"):
         cid = _ap.cut_por_video(FACTORY_DATA, rep["video"]["file_unique_id"], db_path=DB_PATH)
     if not cid:
         mt2 = re.search(r"📌 (.+)", cap)
         if mt2:
             cid = _ap.cut_por_titulo(FACTORY_DATA, mt2.group(1))
+    print(f"dbg: cid={cid}", flush=True)
     if not cid:
         return
     if not _cut_conhecido(cid):
@@ -389,7 +414,8 @@ def main() -> int:
     off = get_offset()
     try:
         data = api("getUpdates", json={"offset": off, "timeout": 20,
-                                       "allowed_updates": ["message", "callback_query"]})
+                                       "allowed_updates": ["message", "edited_message",
+                                                           "callback_query"]})
     except Exception:
         return 0
     updates = data.get("result") or []
@@ -407,7 +433,8 @@ def main() -> int:
             set_offset(0)
             try:
                 data = api("getUpdates", json={"offset": 0, "timeout": 20,
-                                               "allowed_updates": ["message", "callback_query"]})
+                                       "allowed_updates": ["message", "edited_message",
+                                                           "callback_query"]})
                 updates = data.get("result") or []
                 print(f"poll: {len(updates)} update(s) após reset.")
             except Exception:
@@ -418,10 +445,22 @@ def main() -> int:
                 handle_callback(u["callback_query"])
             elif "message" in u:
                 handle_message(u["message"])
+            elif "edited_message" in u:
+                handle_message(u["edited_message"])
         except Exception as exc:
             print(f"poll: update {u.get('update_id')} falhou ({type(exc).__name__})")
         set_offset(int(u.get("update_id", off)) + 1)
     watchdog_diaria()
+    try:
+        # Promove fila vencida todo ciclo: aprovado entra no Buffer na hora
+        # do slot sem precisar de outro tap (antes só promovia no ✅).
+        import datetime as _dt
+        promo = _ap.promover_fila(FACTORY_DATA, DB_PATH,
+                                  _dt.date.today().isoformat())
+        if promo.get("agendados"):
+            print(f"promo-auto: {promo['agendados']} agendado(s).")
+    except Exception as exc:
+        print(f"promo-auto: {type(exc).__name__} (segue).")
     return 0
 
 
