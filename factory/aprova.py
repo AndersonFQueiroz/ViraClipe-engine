@@ -268,6 +268,37 @@ def _salvar_corte(factory_data: Path, db_path: Path, day: str | None, cut_id: st
             con.close()
         except Exception:
             pass
+    # Texto publicado = estado salvo (título + @ + jogo + CTA). Nuvem não tem
+    # arquivos: sem isto o `título:`/`d:`/`jogo:` do dono nunca chega ao post.
+    from . import pack_redes as _pack
+
+    novo_cap = novo_cap_tt = ""
+    row_p = prev_row(db_path, cut_id)
+    if row_p:
+        cap_txt, _first = _pack.caption_for({
+            "cut_id": cut_id,
+            "streamer": str(row_p.get("streamer") or ""),
+            "titulo": str(row_p.get("titulo") or ""),
+            "descricao": str(row_p.get("descricao") or ""),
+            "jogo": str(row_p.get("jogo") or ""),
+            "hashtags": str(row_p.get("hashtags") or "").split()})
+        novo_cap = novo_cap_tt = cap_txt[:2100]
+    con_p = _db.connect(db_path)
+    try:
+        if novo_cap:
+            con_p.execute("UPDATE previews SET caption=?, caption_tt=? WHERE cut_id=?",
+                          (novo_cap, novo_cap_tt, cut_id))
+        if fila_st in {"na_fila", "agendado"} and novo_cap:
+            con_p.execute("UPDATE fila SET caption=?, caption_tt=? WHERE cut_id=?",
+                          (novo_cap, novo_cap_tt, cut_id))
+        con_p.commit()
+    except Exception:
+        pass
+    finally:
+        try:
+            con_p.close()
+        except Exception:
+            pass
     if tem_arquivos and day:
         from . import pack_redes as _pack
 
@@ -316,10 +347,11 @@ def _salvar_corte(factory_data: Path, db_path: Path, day: str | None, cut_id: st
 def definir_titulo(factory_data: Path, db_path: Path, cut_id: str,
                    novo_titulo: str, model: str = "gemini-3.5-flash-lite",
                    api_key: str = "", gemini_fn=None) -> dict:
-    """Título do dono vale puro: sem IA, sem descrição (regra do dono 10/10).
+    """Título do dono vale puro: sem IA (regra do dono 10/10, texto 17/10).
 
-    Não chama o Gemini (economiza call e evita texto cringe). Funciona só
-    com a tabela (sem arquivos). Nunca levanta.
+    Não chama o Gemini (economiza call e evita texto cringe). O texto publicado
+    é remontado com título+@+jogo+CTA. Funciona só com a tabela (sem arquivos).
+    Nunca levanta.
     """
     novo_titulo = (novo_titulo or "").strip()[:90]
     if not novo_titulo:

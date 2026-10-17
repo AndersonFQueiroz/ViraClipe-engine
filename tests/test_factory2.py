@@ -44,15 +44,21 @@ def test_pack_legendas_e_kwai(tmp_path):
     out = P.build_pack(day, finais)
     pack = json.loads(out.read_text(encoding="utf-8"))
     assert "c1" in pack["videos"]
-    assert pack["captions"]["c1"] == "Jogada insana"  # só título, sem IA
+    assert pack["captions"]["c1"] == (
+        "Jogada insana\n@alguem\n"
+        "Se inscreva no ViraClipe para mais clipes! @viraclipe.oficial")
+    assert "que lance" not in pack["captions"]["c1"]  # nunca publica descrição IA
     assert "https://twitch.tv/videos/1" not in pack["captions"]["c1"]
     cap_tt, _ = P.caption_for(finais[0], "tiktok")
-    assert cap_tt == "Jogada insana"
+    assert cap_tt == pack["captions"]["c1"]  # mesmo texto em todas as redes
     cap_clip, _ = P.caption_for({"cut_id": "clip-X", "video_id": "clip:x",
-                                 "streamer": "alguem", "titulo": "T",
-                                 "descricao": "@alguem festa", "hashtags": [],
+                                 "streamer": "alanzoka", "titulo": "T",
+                                 "descricao": "texto de IA qualquer", "hashtags": [],
+                                 "jogo": "VALORANT",
                                  "url": "https://clips.twitch.tv/X"}, "instagram")
-    assert cap_clip == "T" and "clips.twitch.tv" not in cap_clip
+    assert cap_clip.splitlines()[0] == "T"  # título da comunidade na 1ª linha
+    assert "@alanzoka" in cap_clip and "Jogo: VALORANT" in cap_clip
+    assert "texto de IA" not in cap_clip and "clips.twitch.tv" not in cap_clip
     z = day / "pack_kwai.zip"
     assert z.exists()
     assert any(n.endswith("-legenda.txt") for n in zipfile.ZipFile(z).namelist())

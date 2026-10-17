@@ -323,7 +323,8 @@ def _clip_to_scored(clip: dict, mp4: Path, legenda: dict | None = None) -> dict:
         "score_final": min(100.0, views / 10.0),
         # Regra do dono 10/10: título original do clip (IA só se vazio/VOD).
         "titulo": (original or str(leg.get("titulo") or "Melhor momento"))[:90],
-        "descricao": str(leg.get("descricao") or f"@{streamer} na Twitch 🎮"),
+        # Sem descrição de IA: a 'descrição' é o crédito (@ do streamer). 17/10.
+        "descricao": f"@{streamer}" if streamer else "",
         "hashtags": tags,
         "jogo": jogo,
         "_mp4": str(mp4),

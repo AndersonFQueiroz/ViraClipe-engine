@@ -235,7 +235,8 @@ def main(day: str, factory_data: Path, only: list[str] | None = None,
             if svc not in chans:
                 continue
             base_cap = pack.get("captions_tt", {}).get(key) if svc == "tiktok" else pack["captions"][key]
-            text = (base_cap + "\n" + pack.get("cta", {}).get(svc, ""))[:2100]
+            # CTA já vem dentro do caption (título + @ + jogo + inscrição): não duplica.
+            text = str(base_cap or "")[:2100]
             try:
                 pid = (create_fn or create_post)(token, svc, chans[svc], text, url, due,
                                                  pack.get("titles", {}).get(key, f"ViraClipe {day}"))

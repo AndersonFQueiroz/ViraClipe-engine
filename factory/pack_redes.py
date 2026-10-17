@@ -103,18 +103,34 @@ def prune_previews(db_path: Path, manter_dias: int = 3) -> int:
         return 0
 
 
-def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
-    """Caption = só o título (regra do dono 10/10: sem descrição IA).
+def cta_base() -> str:
+    """Frase básica de todos os vídeos (dono 17/10): sem IA, sem link de VOD."""
+    return f"Se inscreva no ViraClipe para mais clipes! {_live_handle()}"
 
-    Título de clip = original da Twitch (na maioria já é bom); VOD = IA/dono.
-    Hashtags/handle/desc continuam no banco, fora do texto publicado.
+
+def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
+    """Publicação = título + @ do streamer + jogo + frase de inscrição.
+
+    Regra do dono 17/10 (descrição sem IA, básica e igual p/ todos):
+      - título do clip baixado = o que a comunidade botou na Twitch;
+        nos aprovados = o que o dono escreveu (ou a IA, se ele não mexer).
+      - crédito: @streamer (o @ mesmo do Telegram).
+      - jogo: só entra se for 100% (API game_id do clip / `jogo:` do dono).
+      - CTA: uma linha, mesma em todas as redes.
     """
     _ = network  # formato único p/ IG/TT/YT
     handle = _live_handle()
-    streamer = str(corte.get("streamer") or "")
-    titulo = str(corte.get("titulo") or "Melhor momento")[:90]
+    streamer = str(corte.get("streamer") or "").strip().lstrip("@")
+    titulo = str(corte.get("titulo") or "Melhor momento")[:90].strip()
+    jogo = str(corte.get("jogo") or "").strip()[:60]
+    linhas = [titulo or "Melhor momento"]
+    if streamer:
+        linhas.append(f"@{streamer}")
+    if jogo:
+        linhas.append(f"Jogo: {jogo}")
+    linhas.append(cta_base())
     first = f"Créditos: @{streamer}\nSegue {handle} pra mais!"
-    return titulo, first
+    return "\n".join(linhas), first
 
 
 def build_pack(day_dir: Path, finais: list[dict],
@@ -148,6 +164,6 @@ def build_pack(day_dir: Path, finais: list[dict],
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
         for key, vpath in videos.items():
             z.write(vpath, Path(vpath).name)
-            txt = pack["captions"][key] + "\n" + cta.get("kwai", "")
+            txt = pack["captions"][key]  # CTA já vem no caption (sem duplicar)
             z.writestr(f"{key}-legenda.txt", txt)
     return day_dir / "pack.json"

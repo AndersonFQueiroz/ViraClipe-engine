@@ -179,8 +179,10 @@ def test_definir_titulo_usa_base_ia(tmp_path):
     assert chamadas == []  # sem IA: título do dono vale puro
     assert "descricao" not in res
     pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-    assert "meu titulo brabo" in pack["titles"]["c1"]
-    assert pack["captions"]["c1"] == "meu titulo brabo"  # só título, sem desc
+    assert pack["titles"]["c1"].startswith("@s — meu titulo brabo")
+    assert pack["captions"]["c1"].splitlines()[0] == "meu titulo brabo"
+    assert "@s" in pack["captions"]["c1"]  # crédito do streamer
+    assert "Se inscreva no ViraClipe" in pack["captions"]["c1"]
 
 
 def test_definir_titulo_vod_sem_ia(tmp_path, monkeypatch):
@@ -218,7 +220,9 @@ def test_definir_descricao_e_fila_sync(tmp_path):
     res = A.definir_descricao(fac, dbp, "clip-A", "d: minha desc")
     assert res["ok"] and res["descricao"] == "minha desc"
     pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-    assert pack["captions"]["c1"] == "T"  # só título mesmo com d: nova
+    # d: do dono não vira o texto publicado (descrição = @ + jogo + CTA)
+    assert pack["captions"]["c1"].splitlines()[0] == "T"
+    assert "minha desc" not in pack["captions"]["c1"]
     # vazia recusa
     assert not A.definir_descricao(fac, dbp, "clip-A", "  ")["ok"]
 
@@ -255,7 +259,7 @@ def test_definir_jogo_vod(tmp_path):
     res = A.definir_jogo(fac, dbp, "twitch:9-100", "Jogo Lindo")
     assert res["ok"] and res["jogo"] == "Jogo Lindo"
     pack = __import__("json").loads((day_dir / "pack.json").read_text(encoding="utf-8"))
-    assert pack["captions"]["c1"] == "T"  # só título, sem linha de jogo
+    assert "Jogo: Jogo Lindo" in pack["captions"]["c1"]  # jogo do dono vai pro post
     assert not A.definir_jogo(fac, dbp, "twitch:9-100", "  ")["ok"]
 
 
@@ -278,7 +282,9 @@ def test_tabela_primeiro_sem_arquivos(tmp_path):
     from factory import pack_redes as _P
     assert _P.caption_for({"video_id": "clip:z", "streamer": "s",
                             "titulo": "T", "descricao": "d",
-                            "hashtags": [], "jogo": "Jogo Novo"})[0] == "T"
+                            "hashtags": [], "jogo": "Jogo Novo"})[0] == (
+        "T\n@s\nJogo: Jogo Novo\n"
+        "Se inscreva no ViraClipe para mais clipes! @viraclipe.oficial")
     res = A.definir_jogo(fac, dbp, "clip-Z", "Jogo Novo")
     assert res["ok"] and res["jogo"] == "Jogo Novo"
     res2 = A.definir_titulo(fac, dbp, "clip-Z", "Titulo Novo",
@@ -287,8 +293,15 @@ def test_tabela_primeiro_sem_arquivos(tmp_path):
                                                        "hashtags": ["a"], "viral_score": 80})
     assert res2["ok"] and res2["titulo"] == "Titulo Novo"
     assert A.prev_row(dbp, "clip-Z")["titulo"] == "Titulo Novo"
+    # Nuvem: caption da tabela já sai remontado (jogo do dono no texto)
+    cap_tab = A.prev_row(dbp, "clip-Z")["caption"]
+    assert cap_tab.splitlines()[0] == "Titulo Novo" and "Jogo: Jogo Novo" in cap_tab
     res3 = A.enfileirar("2026-10-02", fac, dbp, "clip-Z")
     assert res3["ok"]  # snapshot veio da tabela, sem arquivos
+    con = A._db.connect(dbp)
+    fila_cap = con.execute("SELECT caption FROM fila WHERE cut_id='clip-Z'").fetchone()[0]
+    con.close()
+    assert "Jogo: Jogo Novo" in fila_cap and "@s" in fila_cap
 
 
 def test_parse_resposta_tudo_de_uma_vez():
