@@ -654,6 +654,29 @@ def enfileirar(day: str, factory_data: Path, db_path: Path, cut_id: str) -> dict
     return {"ok": True, "cut_id": cut_id, "dia_alvo": dia_alvo, "slot": slot}
 
 
+def texto_publicado(db_path: Path, row: dict) -> str:
+    """Texto que vai pro post: título + @streamer + jogo + CTA, sempre atual.
+
+    Não confia no caption guardado na fila (pode ser de regra antiga): remonta
+    do estado do corte (previews). Cai no caption salvo se não houver linha.
+    """
+    from . import pack_redes as _pack
+
+    cut_id = str(row.get("cut_id") or "")
+    prow = prev_row(db_path, cut_id) if cut_id else None
+    if prow:
+        cap, _first = _pack.caption_for({
+            "cut_id": cut_id,
+            "streamer": str(prow.get("streamer") or ""),
+            "titulo": str(prow.get("titulo") or row.get("titulo") or ""),
+            "descricao": str(prow.get("descricao") or ""),
+            "jogo": str(prow.get("jogo") or ""),
+            "hashtags": str(prow.get("hashtags") or "").split()})
+        if cap:
+            return cap[:2100]
+    return str(row.get("caption") or "")[:2100]
+
+
 def promover_fila(factory_data: Path, db_path: Path, hoje: str = "",
                   channels_fn=None, create_fn=None, uploader=None) -> dict:
     """Agenda no Buffer tudo na fila com dia_alvo vencido. Retorna resumo."""
@@ -728,7 +751,7 @@ def promover_fila(factory_data: Path, db_path: Path, hoje: str = "",
         for svc in _pb.WANT:
             if svc not in chans:
                 continue
-            text = (r["caption_tt"] if svc == "tiktok" else r["caption"])[:2100]
+            text = texto_publicado(db_path, r)
             try:
                 pids[svc] = (create_fn or _pb.create_post)(
                     token, svc, chans[svc], text, url,

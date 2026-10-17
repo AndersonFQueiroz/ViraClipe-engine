@@ -365,3 +365,25 @@ def test_find_day_e_marcar(tmp_path):
     st = con.execute("SELECT status FROM cortes WHERE cut_id='clip-B'").fetchone()["status"]
     con.close()
     assert st == "qc_ok"
+
+
+def test_texto_publicado_remonta_ignora_caption_velho(tmp_path):
+    """Fila com caption de regra antiga ainda publica título + @ + jogo + CTA."""
+    dbp = tmp_path / "t.db"
+    _db.init_db(dbp)
+    con = _db.connect(dbp)
+    con.execute("INSERT INTO previews(cut_id, dia, streamer, titulo, descricao, caption,"
+                " caption_tt, url, jogo) VALUES(?,?,?,?,?,?,?,?,?)",
+                ("clip-V", "2026-10-17", "alanzoka", "cafe no cuador", "@alanzoka",
+                 "cafe no cuador", "cafe no cuador", "u", "Just Chatting"))
+    con.execute("INSERT INTO fila(cut_id, mp4, url, titulo, caption, caption_tt,"
+                " dia_alvo, slot, status, criado_em) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                ("clip-V", "", "", "cafe no cuador", "cafe no cuador", "cafe no cuador",
+                 "2026-10-17", 0, "na_fila", "2026-10-17"))
+    con.commit()
+    con.close()
+    txt = A.texto_publicado(dbp, {"cut_id": "clip-V", "caption": "cafe no cuador"})
+    assert txt.splitlines() == ["cafe no cuador", "@alanzoka", "Jogo: Just Chatting",
+                                "Se inscreva no ViraClipe para mais clipes! @viraclipe.oficial"]
+    # sem linha na tabela: usa o caption salvo (fila antiga não quebra)
+    assert A.texto_publicado(dbp, {"cut_id": "clip-X", "caption": "salvo"}) == "salvo"
