@@ -127,3 +127,25 @@ maluco não tankou o que aconteceu
 @coringa 🔥
 #coringa #gtarp #clipes #twitch
 @viraclipe.oficial','2026-10-01',1,'agendado','2026-09-30');
+-- 2026-11-07: Ranger errado (gringo twitch.tv/ranger) removido;
+-- substituido pelo Ranger LoL (rangerlol1) na whitelist e por um
+-- corte do mount no slot 15:00Z. Patch idempotente.
+DELETE FROM streamers WHERE handle='ranger' AND plataforma='twitch';
+DELETE FROM posts WHERE cut_id='clip-SoftExuberantSandwichTBTacoRight';
+DELETE FROM previews WHERE cut_id='clip-SoftExuberantSandwichTBTacoRight';
+UPDATE cortes SET status='removido:streamer_errado' WHERE cut_id='clip-SoftExuberantSandwichTBTacoRight';
+UPDATE fila SET status='removido:streamer_errado' WHERE cut_id='clip-SoftExuberantSandwichTBTacoRight';
+DELETE FROM rodizio WHERE streamer='ranger';
+INSERT OR IGNORE INTO clips_vistos VALUES('SaltyWonderfulDunlinNononoCat-4xMxzojfJeNFfjpa','mount','2918566325',8574.0,299,'176 / zerando until dawn yessssss','2026-11-07');
+INSERT OR REPLACE INTO cortes(cut_id,video_id,streamer,t_inicio,duracao,chat,audio,viral,score_final,titulo,status,voz,rubrica,jogo) VALUES('clip-SaltyWonderfulDunlinNononoCat-4x','clip:SaltyWonderfulDunlinNononoCat-4xMxzojfJeNFfjpa','mount',0.0,30.0,29.9,50.0,75.0,29.9,'176 / zerando until dawn yessssss','agendado',50.0,'{}','Until Dawn');
+INSERT OR REPLACE INTO fila(cut_id,mp4,url,titulo,caption,caption_tt,dia_alvo,slot,status,criado_em) VALUES('clip-SaltyWonderfulDunlinNononoCat-4x','data/factory/2026-11-07/final-clip-SaltyWonderfulDunlinNononoCat-4x.mp4','https://www.twitch.tv/mount/clip/SaltyWonderfulDunlinNononoCat-4xMxzojfJeNFfjpa','@mount — 176 / zerando until dawn yessssss','176 / zerando until dawn yessssss
+@mount
+Jogo: Until Dawn
+Se inscreva no ViraClipe para mais clipes! @viraclipe.oficial','176 / zerando until dawn yessssss
+@mount
+Jogo: Until Dawn
+Se inscreva no ViraClipe para mais clipes! @viraclipe.oficial','2026-11-07',1,'agendado','2026-11-07');
+INSERT OR REPLACE INTO posts(cut_id,rede,buffer_id,agendado_para) VALUES('clip-SaltyWonderfulDunlinNononoCat-4x','instagram','6aeeb33b9214322f68d00b9c','2026-11-07T15:00:00+00:00');
+INSERT OR REPLACE INTO posts(cut_id,rede,buffer_id,agendado_para) VALUES('clip-SaltyWonderfulDunlinNononoCat-4x','tiktok','6aeeb33ca7751de7c9c90d38','2026-11-07T15:00:00+00:00');
+INSERT OR REPLACE INTO posts(cut_id,rede,buffer_id,agendado_para) VALUES('clip-SaltyWonderfulDunlinNononoCat-4x','youtube','6aeeb33e229bf05daf2ca2e2','2026-11-07T15:00:00+00:00');
+INSERT OR REPLACE INTO rodizio(streamer,ultimo_dia) VALUES('mount','2026-11-07');
