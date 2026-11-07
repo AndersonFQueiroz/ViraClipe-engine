@@ -43,7 +43,8 @@ jobs:
       SCORE_THRESHOLD: "75"
       DAILY_CAP: "5"
       MAX_VODS_DIA: ${{ inputs.max_vods || '3' }}
-      LONGO_MAX_DIA: "3"
+      # Pausado até fechar thumb/poller (07/11); religar com "3".
+      LONGO_MAX_DIA: "0"
       LONGO_MIN_VIEWS: "30"
       SCORE_W_CHAT: ${{ vars.SCORE_W_CHAT }}
       SCORE_W_AUDIO: ${{ vars.SCORE_W_AUDIO }}
