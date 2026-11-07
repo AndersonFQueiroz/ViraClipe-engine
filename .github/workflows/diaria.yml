@@ -98,6 +98,12 @@ jobs:
           DAY="${{ inputs.date }}"
           if [ -z "$DAY" ]; then DAY=$(date +%F); fi
           python3 tools/dia.py --date "$DAY" --max 5 >> "data/logs/cron-$DAY.log" 2>&1 || echo "exit=$?"
+      - name: Sanitiza URLs do buffer (não vazar token no artifact público)
+        if: always()
+        run: |
+          for f in data/factory/*/buffer.json; do
+            [ -f "$f" ] && sed -E -i 's#bot[0-9]+:[A-Za-z0-9_-]+#bot***#g' "$f"
+          done
       - name: Upload logs/pack (1 dia)
         if: always()
         uses: actions/upload-artifact@v4
