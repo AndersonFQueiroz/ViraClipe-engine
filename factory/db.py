@@ -98,6 +98,32 @@ CREATE TABLE IF NOT EXISTS clips_vistos(
   titulo TEXT NOT NULL DEFAULT '',
   visto_em TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS longos(
+  longo_id TEXT PRIMARY KEY,
+  dia TEXT NOT NULL DEFAULT '',
+  streamer TEXT NOT NULL DEFAULT '',
+  origem TEXT NOT NULL DEFAULT '',
+  clip_id TEXT NOT NULL DEFAULT '',
+  video_id TEXT NOT NULL DEFAULT '',
+  vod_url TEXT NOT NULL DEFAULT '',
+  t_inicio REAL NOT NULL DEFAULT 0,
+  duracao REAL NOT NULL DEFAULT 0,
+  jogo TEXT NOT NULL DEFAULT '',
+  titulo TEXT NOT NULL DEFAULT '',
+  descricao TEXT NOT NULL DEFAULT '',
+  caption TEXT NOT NULL DEFAULT '',
+  video_url TEXT NOT NULL DEFAULT '',
+  preview_file_id TEXT NOT NULL DEFAULT '',
+  preview_msg_id INTEGER NOT NULL DEFAULT 0,
+  thumb_base BLOB,
+  thumb_texto TEXT NOT NULL DEFAULT '',
+  thumb_url TEXT NOT NULL DEFAULT '',
+  thumb_msg_id INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'gerado',
+  due_at TEXT NOT NULL DEFAULT '',
+  buffer_id TEXT NOT NULL DEFAULT '',
+  criado_em TEXT NOT NULL DEFAULT ''
+);
 """
 
 

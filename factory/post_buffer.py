@@ -55,17 +55,21 @@ def channels(token: str) -> dict[str, str]:
 
 
 def create_post(token: str, svc: str, channel_id: str, text: str,
-                video_url: str, due_at: str, title: str) -> str:
+                video_url: str, due_at: str, title: str,
+                thumbnail_url: str = "", category_id: str = "22") -> str:
     meta: dict = {}
     if svc == "instagram":
         meta = {"instagram": {"type": "reel", "shouldShareToFeed": True}}
     elif svc == "youtube":
-        meta = {"youtube": {"title": title, "categoryId": "22"}}
+        meta = {"youtube": {"title": title, "categoryId": category_id}}
+    asset: dict = {"url": video_url,
+                   "metadata": {"thumbnailOffset": 2000}}
+    if thumbnail_url:
+        asset["thumbnailUrl"] = thumbnail_url
     variables = {"i": {"text": text, "channelId": channel_id,
                        "schedulingType": "automatic", "mode": "customScheduled",
                        "dueAt": due_at,
-                       "assets": [{"video": {"url": video_url,
-                                             "metadata": {"thumbnailOffset": 2000}}}]}}
+                       "assets": [{"video": asset}]}}
     if meta:
         variables["i"]["metadata"] = meta
     q = """mutation($i: CreatePostInput!) {

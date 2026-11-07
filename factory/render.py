@@ -76,6 +76,22 @@ def build_overlay_vf(font: str, hook: str = "", credit: str = "", handle: str = 
     return f"{wm_top},{wm_bot}"
 
 
+def build_overlay_vf_169(font: str, handle: str = "") -> str:
+    """Marca alternada p/ 16:9 (longo): topo/base, sem texto queimado."""
+    w = _ff_esc(safe_text(handle or handle_ativo())[:30] or "@viraclipe.oficial")
+    wm_top = (
+        f"drawtext=fontfile={font}:text='{w}':fontsize=30:"
+        f"fontcolor=white@0.50:borderw=1:bordercolor=black@0.45:"
+        f"x=(w-text_w)/2:y=28:enable='lt(mod(t,12),6)'"
+    )
+    wm_bot = (
+        f"drawtext=fontfile={font}:text='{w}':fontsize=30:"
+        f"fontcolor=white@0.50:borderw=1:bordercolor=black@0.45:"
+        f"x=(w-text_w)/2:y=h-28-text_h:enable='gte(mod(t,12),6)'"
+    )
+    return f"{wm_top},{wm_bot}"
+
+
 def render_corte(mp4_in: Path, titulo: str, streamer: str, vod_url: str,
                   out_mp4: Path, runner=subprocess.run,
                   fg_box: tuple[int, int, int, int] | None = None) -> bool:

@@ -43,6 +43,8 @@ jobs:
       SCORE_THRESHOLD: "75"
       DAILY_CAP: "5"
       MAX_VODS_DIA: ${{ inputs.max_vods || '3' }}
+      LONGO_MAX_DIA: "3"
+      LONGO_MIN_VIEWS: "30"
       SCORE_W_CHAT: ${{ vars.SCORE_W_CHAT }}
       SCORE_W_AUDIO: ${{ vars.SCORE_W_AUDIO }}
       SCORE_W_LLM: ${{ vars.SCORE_W_LLM }}
@@ -98,6 +100,11 @@ jobs:
           DAY="${{ inputs.date }}"
           if [ -z "$DAY" ]; then DAY=$(date +%F); fi
           python3 tools/dia.py --date "$DAY" --max 5 >> "data/logs/cron-$DAY.log" 2>&1 || echo "exit=$?"
+      - name: Longos 10+ min (YouTube, gate no Telegram)
+        run: |
+          DAY="${{ inputs.date }}"
+          if [ -z "$DAY" ]; then DAY=$(date +%F); fi
+          python3 -m factory.longos --date "$DAY" --max "${LONGO_MAX_DIA:-3}" >> "data/logs/longos-$DAY.log" 2>&1 || echo "longos exit=$?"
       - name: Sanitiza URLs do buffer (não vazar token no artifact público)
         if: always()
         run: |
@@ -111,6 +118,7 @@ jobs:
           name: viraclipe-day
           path: |
             data/logs/cron-*.log
+            data/logs/longos-*.log
             data/factory/*/pack.json
             data/factory/*/buffer.json
             data/factory/*/scored.json

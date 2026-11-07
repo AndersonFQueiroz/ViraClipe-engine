@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config.settings import DB_PATH, FACTORY_DATA
 from factory import aprova as _ap
 from factory import db as _db
+from factory import longos as _lg
 from factory import net as _net
 
 import requests
@@ -144,6 +145,34 @@ def handle_callback(q: dict) -> None:
             return
         _tirar_botoes(q)  # sucesso: sem re-clique
         send_text(chat, f"❌ descartado {cid} (nunca posta).")
+    elif data.startswith("lth:"):
+        lid = data[4:]
+        res = _lg.aprovar(lid, db_path=DB_PATH)
+        if not res.get("ok") and "desconhecido" in str(res.get("error")):
+            sincronizar_diaria()
+            res = _lg.aprovar(lid, db_path=DB_PATH)
+        if not res.get("ok"):
+            send_text(chat, f"⚠️ {res.get('error', 'falha')}")
+            return
+        _tirar_botoes(q)
+        send_text(chat, f"✅ longo agendado: {res.get('due_brt')} "
+                        f"(Buffer {str(res.get('post_id') or '')[:8]}).")
+    elif data.startswith("ltr:") or data.startswith("lvr:"):
+        lid = data[4:]
+        res = _lg.rejeitar(lid, db_path=DB_PATH)
+        if not res.get("ok"):
+            send_text(chat, f"⚠️ {res.get('error', 'falha')}")
+            return
+        _tirar_botoes(q)
+        send_text(chat, f"❌ longo descartado {lid}.")
+    elif data.startswith("ltb:"):
+        lid = data[4:]
+        res = _lg.finalizar_sem_texto(lid, db_path=DB_PATH)
+        if not res.get("ok"):
+            send_text(chat, f"⚠️ {res.get('error', 'falha')}")
+            return
+        _tirar_botoes(q)
+        send_text(chat, "🖼️ thumb final enviada — ✅/❌ nela.")
     elif data.startswith("ver:"):
         cid = data[4:]
         res = _ap.reenviar(FACTORY_DATA, DB_PATH, cid,
@@ -175,6 +204,7 @@ def sincronizar_diaria() -> bool:
     import tempfile
     import zipfile
 
+    _db.init_db(DB_PATH)
     gh_token = os.environ.get("GITHUB_TOKEN", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if not (gh_token and repo):
@@ -234,14 +264,16 @@ def sincronizar_diaria() -> bool:
             try:
                 con.execute("ATTACH ? AS remoto", (src,))
                 try:
-                    for tbl in ("previews", "cortes", "fila"):
+                    for tbl in ("previews", "cortes", "fila", "longos"):
                         cols = [r[1] for r in
                                 con.execute(f"PRAGMA table_info({tbl})").fetchall()]
                         if not cols:
                             continue
                         cl = ",".join(cols)
+                        verb = ("INSERT OR IGNORE" if tbl == "longos"
+                                else "INSERT OR REPLACE")
                         con.execute(
-                            f"INSERT OR REPLACE INTO {tbl}({cl}) "
+                            f"{verb} INTO {tbl}({cl}) "
                             f"SELECT {cl} FROM remoto.{tbl}")
                     visto = ",".join([s for s in
                                           ((sync[0] if sync else "") + ","
@@ -324,6 +356,35 @@ def handle_message(m: dict) -> None:
     cap = rep.get("caption") or ""
     print(f"dbg: repkeys={sorted(rep.keys())} caplen={len(cap)} "
           f"cap0={cap[:60]!r} hasvid={bool(rep.get('video'))}", flush=True)
+    ml = re.search(r"🆔\s*(l[0-9a-f]{10})\b", cap)
+    if ml:
+        lid = ml.group(1)
+        low = text.strip().lower()
+        if low in ("✅", "ok", "aprovado", "aprovar"):
+            res = _lg.aprovar(lid, db_path=DB_PATH)
+            send_text(chat, (f"✅ longo agendado: {res.get('due_brt')}."
+                             if res.get("ok")
+                             else f"⚠️ {res.get('error', 'falha')}"))
+            return
+        if low in ("❌", "nao", "não", "descartar", "descartado"):
+            res = _lg.rejeitar(lid, db_path=DB_PATH)
+            send_text(chat, (f"❌ longo descartado {lid}."
+                             if res.get("ok")
+                             else f"⚠️ {res.get('error', 'falha')}"))
+            return
+        res = _lg.aplicar_texto(lid, text, db_path=DB_PATH)
+        if not res.get("ok") and "desconhecido" in str(res.get("error")):
+            sincronizar_diaria()
+            res = _lg.aplicar_texto(lid, text, db_path=DB_PATH)
+            if not res.get("ok") and "desconhecido" in str(res.get("error")):
+                send_text(chat, "🔄 prévia ainda sincronizando — 1 min e reenvie.")
+                return
+        if res.get("ok"):
+            send_text(chat, "🖼️ thumb final atualizada.\n"
+                            f"📌 {str(res.get('titulo') or '')[:80]}")
+        else:
+            send_text(chat, f"⚠️ {res.get('error', 'falha')}")
+        return
     if not cap:
         return
     cid = None

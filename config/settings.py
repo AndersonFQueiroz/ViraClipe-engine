@@ -21,6 +21,15 @@ def env_int(name: str, default: int) -> int:
 # Slots BRT 9/12/15/18/21 = UTC 12/15/18/21/00 (igual ReelIfy)
 SLOTS_UTC = [(12, 0), (15, 0), (18, 0), (21, 0), (0, 0)]
 
+# Longos 10+ min (YouTube): 3/dia encaixados entre os 5 shorts.
+# UTC 13:30/16:30/19:30 = BRT 10:30/13:30/16:30.
+LONGO_SLOTS_UTC = [(13, 30), (16, 30), (19, 30)]
+LONGO_ALVO = env_int("LONGO_ALVO", 600)
+LONGO_PAD = env_int("LONGO_PAD", 240)
+LONGO_MAX = env_int("LONGO_MAX", 900)
+LONGO_MAX_DIA = env_int("LONGO_MAX_DIA", 3)
+LONGO_MIN_VIEWS = env_int("LONGO_MIN_VIEWS", 30)
+
 SCORE_THRESHOLD = env_int("SCORE_THRESHOLD", 75)
 DAILY_CAP = env_int("DAILY_CAP", 5)
 MIN_VIEWERS = env_int("MIN_VIEWERS", 200)
