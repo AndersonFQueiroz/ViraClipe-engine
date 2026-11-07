@@ -29,12 +29,11 @@ import requests
 
 from config.settings import (DB_PATH, FACTORY_DATA, LONGO_ALVO, LONGO_MAX,
                              LONGO_MAX_DIA, LONGO_MIN_VIEWS, LONGO_PAD,
-                             LONGO_SLOTS_UTC, ROOT)
+                             LONGO_SLOTS_UTC, LONGO_THUMB_ESTILO, ROOT)
 from . import clips as _clips
 from . import db as _db
 from . import net as _net
 from . import post_buffer as _buf
-from . import reframe as _reframe
 from . import render as _render
 from . import upload_public
 
@@ -349,58 +348,56 @@ def _rounded_mask(size: tuple[int, int], radius: int):
     return mask
 
 
-def _face_panel(face_frame: Path, face_box, panel_w=400, panel_h=720):
+def _facecam_panel(face_frame: Path, panel_w=360, panel_h=236):
     from PIL import Image, ImageOps
 
     im = Image.open(face_frame).convert("RGB")
     w, h = im.size
-    if face_box:
-        fx, fy, fw, fh = (int(v) for v in face_box)
-        cw = int(min(w, max(220, fw * 1.8)))
-        ch = int(min(h, cw * panel_h / panel_w))
-        cx = fx + fw / 2 - cw / 2
-        cy = fy + fh / 2 - ch / 2
-        x0 = int(max(0, min(cx, w - cw)))
-        y0 = int(max(0, min(cy, h - ch)))
-        im = im.crop((x0, y0, x0 + cw, y0 + ch))
-    return ImageOps.fit(im, (panel_w, panel_h))
+    crop = im.crop((0, 0, min(300, w), min(200, h)))
+    panel = ImageOps.fit(crop, (panel_w, panel_h))
+    border, radius = 8, 22
+    out = Image.new("RGBA", (panel_w + 2 * border, panel_h + 2 * border),
+                    (0, 0, 0, 0))
+    frame = Image.new("RGBA", out.size, _YELLOW + (255,))
+    out.paste(frame, (0, 0), _rounded_mask(out.size, radius + border))
+    out.paste(panel.convert("RGBA"), (border, border),
+              _rounded_mask((panel_w, panel_h), radius))
+    return out
 
 
 def montar_thumb_base(frames: list[Path], face_frame: Path, face_box,
-                      out_jpg: Path) -> bool:
-    """1280x720 sem texto: 3 frames no topo + rosto à direita + área escura."""
+                      out_jpg: Path, estilo: str = "clean") -> bool:
+    """1280x720 sem texto: frame do jogo inteiro + texto à esquerda.
+
+    `estilo="facecam"` recorta o canto superior esquerdo (facecam do streamer)
+    num painel arredondado à direita; `clean` usa só o jogo (universal).
+    """
     from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
     try:
-        canvas = Image.new("RGB", (THUMB_W, THUMB_H), (10, 10, 12))
-        bg = ImageOps.fit(Image.open(face_frame).convert("RGB"),
-                          (THUMB_W, THUMB_H)).filter(
-                              ImageFilter.GaussianBlur(28))
-        bg = Image.eval(bg, lambda v: int(v * 0.32))
-        canvas.paste(bg, (0, 0))
-
-        fw, fh = 300, 169
-        for i, fp in enumerate(frames[:3]):
-            try:
-                im = ImageOps.fit(Image.open(fp).convert("RGB"), (fw, fh))
-                canvas.paste(im, (i * fw, 0), _rounded_mask((fw, fh), 12))
-            except Exception:
-                continue
-
-        panel = _face_panel(face_frame, face_box)
-        canvas.paste(panel, (THUMB_W - 400, 0))
+        src = face_frame if Path(face_frame).exists() else frames[0]
+        canvas = ImageOps.fit(Image.open(src).convert("RGB"),
+                              (THUMB_W, THUMB_H)).convert("RGBA")
+        canvas = Image.alpha_composite(
+            canvas, Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 18)))
 
         over = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
         d = ImageDraw.Draw(over)
-        for y in range(110, THUMB_H):
-            a = int(28 + (y - 110) / (THUMB_H - 110) * 208)
-            d.line([(0, y), (THUMB_W, y)], fill=(0, 0, 0, min(238, a)))
-        for x in range(THUMB_W - 400, THUMB_W):
-            a = int(max(0, 120 - (x - (THUMB_W - 400)) * 1.2))
-            d.line([(x, 0), (x, THUMB_H)], fill=(0, 0, 0, a))
-        canvas = Image.alpha_composite(canvas.convert("RGBA"), over).convert("RGB")
+        for y in range(280, THUMB_H):
+            a = int((y - 280) / (THUMB_H - 280) * 235)
+            d.line([(0, y), (THUMB_W, y)], fill=(0, 0, 0, min(240, a)))
+        canvas = Image.alpha_composite(canvas, over)
 
-        canvas.save(out_jpg, "JPEG", quality=93, optimize=True)
+        if estilo == "facecam":
+            blur = canvas.crop((0, 0, 300, 200)).filter(
+                ImageFilter.GaussianBlur(18))
+            canvas.paste(blur, (0, 0))
+            panel = _facecam_panel(face_frame)
+            px = THUMB_W - panel.width - 36
+            py = (THUMB_H - panel.height) // 2
+            canvas.paste(panel, (px, py), panel)
+
+        canvas.convert("RGB").save(out_jpg, "JPEG", quality=93, optimize=True)
         return out_jpg.exists() and out_jpg.stat().st_size > 20_000
     except Exception as exc:
         _log(f"thumb base erro: {type(exc).__name__}: {exc}")
@@ -426,7 +423,8 @@ def _wrap(draw, texto: str, font, max_w: float) -> list[str]:
     return out or [texto.strip()]
 
 
-def render_thumb_texto(base_jpg: Path, texto: str, out_jpg: Path) -> bool:
+def render_thumb_texto(base_jpg: Path, texto: str, out_jpg: Path,
+                       max_w: int = 820) -> bool:
     """Compõe o texto do dono na thumb-base (branco + última linha amarela)."""
     from PIL import Image, ImageDraw, ImageFont
 
@@ -443,7 +441,6 @@ def render_thumb_texto(base_jpg: Path, texto: str, out_jpg: Path) -> bool:
     if not font_path:
         return False
     draw = ImageDraw.Draw(base)
-    max_w = 820
     max_h = 470
     chosen = None
     for size in range(176, 59, -6):
@@ -537,13 +534,10 @@ def _titulo(p: dict) -> str:
 
 
 def _descricao(p: dict) -> str:
-    clip = str(p.get("titulo_clip") or "").strip()
     streamer = str(p.get("streamer") or "")
     jogo = str(p.get("jogo") or "")
-    linhas = [clip] if clip else []
-    linhas.append(f"@{streamer} jogando {jogo} ao vivo na Twitch.")
-    linhas.append("")
-    linhas.append("Canal @viraclipe.oficial — cortes diários dos maiores streamers.")
+    linhas = [f"@{streamer} jogando {jogo} ao vivo na Twitch.", "",
+              "Canal @viraclipe.oficial — cortes diários dos maiores streamers."]
     return "\n".join(linhas)[:2000]
 
 
@@ -554,12 +548,14 @@ def enviar_previews(row: dict, base_jpg: Path, preview_mp4: Path,
         return {"ok": False, "error": "sem TELEGRAM_BOT_TOKEN/OWNER"}
     api = f"https://api.telegram.org/bot{token}"
     lid = str(row["longo_id"])
+    clip = str(row.get("titulo_clip") or "").strip()
     try:
         base_cap = (
             "🖼️ THUMB BASE — responda ESTA foto com o texto\n"
             "Ex.: thumb: NÃO É POSSÍVEL KKKKKKKK\n"
             "Opcional: titulo: ... / desc: ...\n"
-            f"📌 {str(row.get('titulo') or '')[:90]}\n"
+            + (f"🎞️ Clipe original: {clip[:150]}\n" if clip else "")
+            + f"📌 Título sugerido: {str(row.get('titulo') or '')[:90]}\n"
             f"🎮 @{row.get('streamer')} | {row.get('jogo')}\n"
             f"🆔 {lid}")
         b = _send_photo(api, chat, base_jpg, base_cap,
@@ -572,7 +568,8 @@ def enviar_previews(row: dict, base_jpg: Path, preview_mp4: Path,
     try:
         video_cap = (
             "🎬 LONGO 10 min — prévia (o post usa 720p)\n"
-            f"📌 {str(row.get('titulo') or '')[:90]}\n"
+            + (f"🎞️ Clipe original: {clip[:150]}\n" if clip else "")
+            + f"📌 Título sugerido: {str(row.get('titulo') or '')[:90]}\n"
             f"🎮 @{row.get('streamer')} | {row.get('jogo')}\n"
             "👉 o ✅ fica na THUMB FINAL (responda a foto base)\n"
             f"🆔 {lid}")
@@ -606,27 +603,14 @@ def _render_base(row: dict, src: Path, anchor_off: float,
     if dur <= 0:
         return None
     lid = str(row["longo_id"])
-    ts = [max(0.0, min(dur - 1, anchor_off - 150)),
-          max(0.0, min(dur - 1, anchor_off)),
-          max(0.0, min(dur - 1, anchor_off + 180))]
-    frames = []
-    for i, t in enumerate(ts):
-        p = out_dir / f"frame-{lid}-{i}.jpg"
-        if _frame(src, t, p):
-            frames.append(p)
-    if not frames:
+    frame = out_dir / f"frame-{lid}.jpg"
+    if not _frame(src, anchor_off, frame):
         return None
-    face_frame = out_dir / f"face-{lid}.jpg"
-    if not _frame(src, anchor_off, face_frame):
-        face_frame = frames[0]
-    try:
-        box = _reframe.find_face_box(src, max(0.0, anchor_off - 8), 16)
-    except Exception:
-        box = None
     base = out_dir / f"thumb-base-{lid}.jpg"
-    if not montar_thumb_base(frames, face_frame, box, base):
+    if not montar_thumb_base([frame], frame, None, base,
+                             estilo=LONGO_THUMB_ESTILO):
         return None
-    return base, box
+    return base, None
 
 
 def _candidato(c: dict) -> dict:
@@ -750,6 +734,7 @@ def gerar_um(cand: dict, day: str, db_path: Path = DB_PATH,
     row = {
         "longo_id": lid, "dia": day, "streamer": cand["streamer"],
         "origem": "clip", "clip_id": cand["clip_id"],
+        "titulo_clip": cand["titulo_clip"],
         "video_id": cand["vod_id"], "vod_url": cand["vod_url"],
         "t_inicio": start, "duracao": dur, "jogo": cand["jogo"],
         "titulo": _titulo(cand), "descricao": _descricao(cand),
@@ -817,7 +802,9 @@ def aplicar_texto(lid: str, texto: str, db_path: Path = DB_PATH,
         base = Path(tmp) / "base.jpg"
         base.write_bytes(bytes(blob))
         out = Path(tmp) / "final.jpg"
-        if not render_thumb_texto(base, str(merged.get("thumb_texto") or ""), out):
+        max_w = 1100 if LONGO_THUMB_ESTILO == "clean" else 820
+        if not render_thumb_texto(base, str(merged.get("thumb_texto") or ""),
+                                  out, max_w=max_w):
             return {"ok": False, "error": "render da thumb falhou"}
         url = _upload_imagem(out)
         if not url:

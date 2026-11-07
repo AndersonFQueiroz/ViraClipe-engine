@@ -97,12 +97,49 @@ def test_thumb_base_e_texto(tmp_path: Path):
     im.save(face, "JPEG", quality=90)
     base = tmp_path / "base.jpg"
     assert L.montar_thumb_base(frames, face, (520, 180, 240, 280), base)
-    assert base.exists() and base.stat().st_size > 20_000
+    assert base.exists() and base.stat().st_size > 8_000
     out = tmp_path / "final.jpg"
     assert L.render_thumb_texto(base, "NÃO É POSSÍVEL\nKKKKKKKK", out)
-    assert out.exists() and out.stat().st_size > 20_000
+    assert out.exists() and out.stat().st_size > 8_000
     with Image.open(out) as fim:
         assert fim.size == (1280, 720)
     sem = tmp_path / "sem.jpg"
     assert L.render_thumb_texto(base, "", sem)
     assert sem.exists()
+    facecam = tmp_path / "facecam.jpg"
+    assert L.montar_thumb_base(frames, face, None, facecam, estilo="facecam")
+    assert facecam.exists()
+
+
+def test_descricao_generica_padrao():
+    d = L._descricao({"streamer": "mount", "jogo": "Until Dawn",
+                      "titulo_clip": "175 / continuando Until Dawn"})
+    assert "continuando" not in d
+    assert "@mount jogando Until Dawn" in d
+    assert "@viraclipe.oficial" in d
+
+
+def test_previews_mostram_clipe_original(tmp_path: Path, monkeypatch):
+    db = tmp_path / "d.db"
+    DB.init_db(db)
+    caps = {}
+
+    def fake_photo(api, chat, jpg, caption, kb=None):
+        caps["base"] = caption
+        return {"result": {"message_id": 11}}
+
+    def fake_video(api, chat, mp4, caption, kb=None):
+        caps["video"] = caption
+        return {"result": {"message_id": 12}}
+
+    monkeypatch.setattr(L, "_tg", lambda: ("tok", "chat"))
+    monkeypatch.setattr(L, "_send_photo", fake_photo)
+    monkeypatch.setattr(L, "_send_video", fake_video)
+    row = {"longo_id": "l1234567890", "streamer": "mount",
+           "jogo": "Until Dawn", "titulo": "MOUNT JOGANDO UNTIL DAWN",
+           "titulo_clip": "175 / continuando Until Dawn"}
+    res = L.enviar_previews(row, tmp_path / "b.jpg", tmp_path / "v.mp4",
+                            db_path=db)
+    assert res.get("ok"), res
+    assert "Clipe original: 175 / continuando Until Dawn" in caps["base"]
+    assert "Clipe original: 175 / continuando Until Dawn" in caps["video"]

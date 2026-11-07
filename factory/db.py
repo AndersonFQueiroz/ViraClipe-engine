@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS longos(
   streamer TEXT NOT NULL DEFAULT '',
   origem TEXT NOT NULL DEFAULT '',
   clip_id TEXT NOT NULL DEFAULT '',
+  titulo_clip TEXT NOT NULL DEFAULT '',
   video_id TEXT NOT NULL DEFAULT '',
   vod_url TEXT NOT NULL DEFAULT '',
   t_inicio REAL NOT NULL DEFAULT 0,
@@ -142,7 +143,8 @@ def init_db(db_path: Path) -> None:
         for ddl in ("ALTER TABLE cortes ADD COLUMN voz REAL NOT NULL DEFAULT 50",
                     "ALTER TABLE cortes ADD COLUMN rubrica TEXT NOT NULL DEFAULT ''",
                     "ALTER TABLE fila ADD COLUMN url TEXT NOT NULL DEFAULT ''",
-                    "ALTER TABLE cortes ADD COLUMN jogo TEXT NOT NULL DEFAULT ''"):
+                    "ALTER TABLE cortes ADD COLUMN jogo TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE longos ADD COLUMN titulo_clip TEXT NOT NULL DEFAULT ''"):
             try:
                 con.execute(ddl)
             except Exception:
