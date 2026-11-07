@@ -13,9 +13,12 @@ def test_cut_cmd_vertical_faststart():
     from pathlib import Path
     cmd = C.cut_cmd(Path("in.mp4"), 10.0, 30.0, Path("out.mp4"))
     s = " ".join(cmd)
-    assert "crop=ih*9/16:ih,scale=720:1280" in s
+    assert "boxblur=" in s and "force_original_aspect_ratio=increase" in s
     assert "+faststart" in s
     assert "-ss" in cmd and "10.0" in cmd
+    centro = " ".join(C.cut_cmd(Path("in.mp4"), 10.0, 30.0, Path("out.mp4"),
+                                layout="centro"))
+    assert "crop=ih*9/16:ih,scale=720:1280" in centro
 
 
 def test_render_safe_text():

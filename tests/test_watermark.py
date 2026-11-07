@@ -17,6 +17,20 @@ def test_escape_ffmpeg():
     assert "'" not in R._ff_esc("d'água")
 
 
+def test_marca_dentro_do_video_no_blur():
+    vf = R.build_overlay_vf("/f.ttf", handle="@viraclipe.oficial",
+                            fg_box=(0, 437, 720, 405))
+    assert "x=0+(720-text_w)/2" in vf
+    assert "y=461" in vf  # topo do vídeo (437 + 24)
+    assert "y=818-text_h" in vf  # base do vídeo (437+405-24)
+    assert "y=60:" not in vf and "y=h-220" not in vf
+
+
+def test_marca_legado_sem_fg_box():
+    vf = R.build_overlay_vf("/f.ttf", handle="@viraclipe.oficial")
+    assert "y=60:" in vf and "y=h-220" in vf
+
+
 def test_handle_default():
     vf = R.build_overlay_vf("/f.ttf", "T", "C")
     assert "@viraclipe.oficial" in vf

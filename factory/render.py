@@ -3,6 +3,8 @@
 Nada de texto queimado além da marca: hook, crédito e link da live vão
 na DESCRIÇÃO do post (pack), não no vídeo. Marca: handle semi-transparente
 o vídeo todo, alternando topo/base a cada 6s (crop de um canto não limpa).
+Com `fg_box` (layout blur), a marca fica SEMPRE sobre o vídeo original —
+cortar a faixa borrada não remove a marca.
 Sem fonte no host, copia sem quebrar o dia.
 """
 from __future__ import annotations
@@ -14,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 _EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF☀-➿⬅-⬏]+")
+WM_MARGIN = 24
 
 
 def safe_text(text: str) -> str:
@@ -45,25 +48,37 @@ def handle_ativo() -> str:
         return "@viraclipe.oficial"
 
 
-def build_overlay_vf(font: str, hook: str = "", credit: str = "", handle: str = "") -> str:
-    """Monta o -vf: SÓ a marca alternada anti-kiba (sem texto queimado)."""
+def build_overlay_vf(font: str, hook: str = "", credit: str = "", handle: str = "",
+                     fg_box: tuple[int, int, int, int] | None = None) -> str:
+    """Monta o -vf: SÓ a marca alternada anti-kiba (sem texto queimado).
+
+    fg_box = (x, y, w, h) do vídeo original dentro do 720x1280 (layout blur).
+    Com ele a marca fica DENTRO do vídeo: recortar o blur não limpa a marca.
+    """
     w = _ff_esc(safe_text(handle or handle_ativo())[:30] or "@viraclipe.oficial")
+    x_expr, y_top, y_bot = "(w-text_w)/2", "60", "h-220"
+    if fg_box:
+        fx, fy, fw, fh = (int(v) for v in fg_box)
+        x_expr = f"{fx}+({fw}-text_w)/2"
+        y_top = str(fy + WM_MARGIN)
+        y_bot = f"{fy + fh - WM_MARGIN}-text_h"
     # Marca: 6s no topo, 6s na base, loop. Alpha 0.55: legível, não polui.
     wm_top = (
         f"drawtext=fontfile={font}:text='{w}':fontsize=28:"
         f"fontcolor=white@0.55:borderw=1:bordercolor=black@0.5:"
-        f"x=(w-text_w)/2:y=60:enable='lt(mod(t,12),6)'"
+        f"x={x_expr}:y={y_top}:enable='lt(mod(t,12),6)'"
     )
     wm_bot = (
         f"drawtext=fontfile={font}:text='{w}':fontsize=28:"
         f"fontcolor=white@0.55:borderw=1:bordercolor=black@0.5:"
-        f"x=(w-text_w)/2:y=h-220:enable='gte(mod(t,12),6)'"
+        f"x={x_expr}:y={y_bot}:enable='gte(mod(t,12),6)'"
     )
     return f"{wm_top},{wm_bot}"
 
 
 def render_corte(mp4_in: Path, titulo: str, streamer: str, vod_url: str,
-                  out_mp4: Path, runner=subprocess.run) -> bool:
+                  out_mp4: Path, runner=subprocess.run,
+                  fg_box: tuple[int, int, int, int] | None = None) -> bool:
     font = _font()
     if font is None:
         try:
@@ -71,7 +86,7 @@ def render_corte(mp4_in: Path, titulo: str, streamer: str, vod_url: str,
             return True
         except Exception:
             return False
-    vf = build_overlay_vf(font)
+    vf = build_overlay_vf(font, fg_box=fg_box)
     try:
         r = runner(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -101,7 +116,8 @@ def render_day(day: str, factory_data: Path, runner=subprocess.run) -> list[dict
         dst = day_dir / f"final-{c['cut_id']}.mp4"
         if not (dst.exists() and dst.stat().st_size > 100_000):
             render_corte(src, str(c.get("titulo") or ""), str(c.get("streamer") or ""),
-                         str(c.get("url") or ""), dst, runner=runner)
+                         str(c.get("url") or ""), dst, runner=runner,
+                         fg_box=c.get("fg_box"))
         if dst.exists():
             finais.append({**c, "mp4": str(dst)})
     (day_dir / "finais.json").write_text(

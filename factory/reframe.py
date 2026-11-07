@@ -129,3 +129,23 @@ def split_filter(face_box: tuple[int, int, int, int] | None) -> str | None:
         f"[face]crop={fw}:{fh}:{fx}:{fy},scale={BOT_W}:{BOT_H}[bot];"
         "[top][bot]vstack"
     )
+
+
+# Layout "blur" (padrão Reels/Shorts): fundo = vídeo esticado p/ preencher
+# 720x1280 com desfoque forte + leve escurecida; frente = vídeo original
+# inteiro centralizado. Funciona com qualquer proporção, sem rosto/cv2.
+BLUR_SIZE = 30
+BLUR_DIM = -0.08
+
+
+def blur_filter() -> str:
+    """Fundo desfocado + vídeo inteiro centralizado em 720x1280 (9:16)."""
+    w, h = 720, 1280
+    return (
+        "split=2[bg0][fg0];"
+        f"[bg0]scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},boxblur={BLUR_SIZE}:2,"
+        f"eq=brightness={BLUR_DIM}:saturation=1.05[bg];"
+        f"[fg0]scale={w}:{h}:force_original_aspect_ratio=decrease[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
+    )

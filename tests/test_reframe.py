@@ -48,12 +48,76 @@ def test_split_filter_layout():
     assert "vstack" in vf
 
 
+def test_blur_filter_9x16():
+    vf = RF.blur_filter()
+    assert "scale=720:1280:force_original_aspect_ratio=increase" in vf
+    assert "scale=720:1280:force_original_aspect_ratio=decrease" in vf
+    assert f"boxblur={RF.BLUR_SIZE}:2" in vf
+    assert "crop=720:1280" in vf
+    assert "overlay=(W-w)/2:(H-h)/2" in vf
+    assert "setsar=1" in vf
+    assert "crop=ih*9/16:ih" not in vf
+
+
+def test_cut_cmd_blur_por_layout_e_env(monkeypatch):
+    from pathlib import Path
+    cmd = " ".join(C.cut_cmd(Path("i.mp4"), 0, 30, Path("o.mp4"), layout="blur"))
+    assert "force_original_aspect_ratio=increase" in cmd
+    assert "boxblur=" in cmd
+    assert "crop=ih*9/16:ih" not in cmd
+    monkeypatch.setenv("VIRACLIPE_LAYOUT", "blur")
+    assert C.layout_ativo() == "blur"
+    env_cmd = " ".join(C.cut_cmd(Path("i.mp4"), 0, 30, Path("o.mp4")))
+    assert "boxblur=" in env_cmd
+
+
 def test_cut_cmd_split_e_centro():
     from pathlib import Path
-    base = " ".join(C.cut_cmd(Path("i.mp4"), 0, 30, Path("o.mp4")))
+    base = " ".join(C.cut_cmd(Path("i.mp4"), 0, 30, Path("o.mp4"), layout="auto"))
     assert "crop=ih*9/16:ih" in base  # fallback centro
-    split = " ".join(C.cut_cmd(Path("i.mp4"), 0, 30, Path("o.mp4"), (360, 80, 308, 240)))
+    split = " ".join(C.cut_cmd(Path("i.mp4"), 0, 30, Path("o.mp4"),
+                               (360, 80, 308, 240), layout="auto"))
     assert "vstack" in split and "crop=ih*9/16" not in split
+
+
+def test_layout_default_blur(monkeypatch):
+    from pathlib import Path
+    monkeypatch.delenv("VIRACLIPE_LAYOUT", raising=False)
+    assert C.layout_ativo() == "blur"
+    cmd = " ".join(C.cut_cmd(Path("i.mp4"), 0, 30, Path("o.mp4")))
+    assert "boxblur=" in cmd and "crop=ih*9/16:ih" not in cmd
+
+
+def _probe_fake(payload):
+    import json
+    from types import SimpleNamespace
+
+    def fake(cmd, **kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    return fake
+
+
+def test_fg_box_16x9():
+    from pathlib import Path
+    fake = _probe_fake({"streams": [{"width": 1920, "height": 1080}]})
+    assert C._fg_box(Path("x.mp4"), runner=fake) == (0, 437, 720, 405)
+
+
+def test_fg_box_rotacao_90():
+    from pathlib import Path
+    fake = _probe_fake({"streams": [{"width": 1920, "height": 1080,
+                                     "side_data_list": [{"rotation": 90}]}]})
+    assert C._fg_box(Path("x.mp4"), runner=fake) == (0, 0, 720, 1280)
+
+
+def test_fg_box_probe_falha():
+    from pathlib import Path
+
+    def fake(cmd, **kwargs):
+        raise OSError("sem ffprobe")
+
+    assert C._fg_box(Path("x.mp4"), runner=fake) is None
 
 
 def test_find_face_box_sem_cv2(monkeypatch):

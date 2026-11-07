@@ -35,7 +35,7 @@ cortes (YouTube Shorts + TikTok + Instagram Reels via Buffer, Kwai via pack manu
 | 📥 **Ingest pós-live** | `yt-dlp` em 720p + chat replay; baixa, processa e apaga o original |
 | 📊 **Sinais locais custo zero** | Pico de chat (msgs/seg + emotes) + energia de áudio (`ebur128`), sem API |
 | 🧠 **Score Gemini Flash (free)** | 1 call por candidato: `viral_score` + título + hashtags; fallback local sem travar |
-| ✂️ **Corte vertical** | `ffmpeg` crop 9:16 + 720x1280, h264/aac + faststart, hook + crédito queimados |
+| ✂️ **Corte vertical** | fundo desfocado + vídeo inteiro 9:16 (720x1280), h264/aac + faststart, marca d'água sobre o vídeo |
 | 🏷️ **Pack por rede** | Legenda + 1º comentário + título adaptados (Shorts/Reels/TikTok), zip do Kwai |
 | 🛡️ **QC bloqueante** | Reprovou 1 corte, nada é postado (duração, specs, blocklist, dedup, crédito) |
 | 📮 **Auto-post Buffer** | Agenda os 5 slots BRT sozinho; sem chave, gera o pack e sai sem erro |
