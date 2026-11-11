@@ -451,8 +451,11 @@ def watchdog_diaria(agora=None) -> None:
         hoje = agora.date().isoformat()
         for run in (r.json().get("workflow_runs") or []):
             ini = str(run.get("run_started_at") or run.get("created_at") or "")[:10]
-            if ini >= hoje and run.get("conclusion") in ("success", "in_progress", "queued"):
-                return  # hoje já rodou/tá rodando
+            if ini >= hoje:
+                # Qualquer run de hoje basta: rodando, na fila OU concluída
+                # (mesmo com falha). Redisparar em falha virava flood de runs
+                # a cada ciclo do poller (cada um levava ~20min e falhava).
+                return
         d = requests.post(
             f"https://api.github.com/repos/{repo}/actions/workflows/"
             "diaria.yml/dispatches",
