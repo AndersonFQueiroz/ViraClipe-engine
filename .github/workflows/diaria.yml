@@ -100,7 +100,7 @@ jobs:
         run: |
           DAY="${{ inputs.date }}"
           if [ -z "$DAY" ]; then DAY=$(date +%F); fi
-          python3 tools/dia.py --date "$DAY" --max 5 >> "data/logs/cron-$DAY.log" 2>&1 || echo "exit=$?"
+          python3 tools/dia.py --date "$DAY" --max 5 2>&1 | tee -a "data/logs/cron-$DAY.log"
       - name: Longos 10+ min (YouTube, gate no Telegram)
         run: |
           DAY="${{ inputs.date }}"
@@ -109,8 +109,9 @@ jobs:
       - name: Sanitiza URLs do buffer (não vazar token no artifact público)
         if: always()
         run: |
+          shopt -s nullglob
           for f in data/factory/*/buffer.json; do
-            [ -f "$f" ] && sed -E -i 's#bot[0-9]+:[A-Za-z0-9_-]+#bot***#g' "$f"
+            sed -E -i 's#bot[0-9]+:[A-Za-z0-9_-]+#bot***#g' "$f"
           done
       - name: Upload logs/pack (1 dia)
         if: always()
