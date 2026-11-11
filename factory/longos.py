@@ -906,6 +906,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--db", default=str(DB_PATH))
     ap.add_argument("--factory", default=str(FACTORY_DATA))
     args = ap.parse_args(argv)
+    if args.max <= 0:
+        print("longos: pausado (--max 0)")
+        return 0
     db_path = Path(args.db)
     factory_data = Path(args.factory)
     _db.init_db(db_path)
