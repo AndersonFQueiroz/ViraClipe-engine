@@ -90,16 +90,16 @@ jobs:
           path: data/viraclipe.db
           key: viraclipe-db-${{ github.run_id }}
           restore-keys: viraclipe-db-
-      - name: Aplica seed anti-repetição (migração local -> nuvem)
-        run: |
-          if [ -f data/seed_state.sql ]; then
-            python3 -c "import sqlite3; con=sqlite3.connect('data/viraclipe.db'); con.executescript(open('data/seed_state.sql',encoding='utf-8').read()); con.commit(); con.close(); print('seed aplicado')"
-          fi
       - name: Seed + ativa whitelist
         env:
           VIRACLIP_ACTIVE: ${{ vars.VIRACLIP_ACTIVE }}
         run: |
           python3 -m tools.seed_whitelist --seed
+          # Patch de estado (07/11) só DEPOIS do schema existir: cache expirado
+          # não pode mais derrubar a diária ("no such table: streamers").
+          if [ -f data/seed_state.sql ]; then
+            python3 -c "import sqlite3; con=sqlite3.connect('data/viraclipe.db'); con.executescript(open('data/seed_state.sql',encoding='utf-8').read()); con.commit(); con.close(); print('seed aplicado')"
+          fi
           # shellcheck disable=SC2086
           python3 -m tools.seed_whitelist --sync $VIRACLIP_ACTIVE || true
           python3 -m tools.seed_whitelist --list
