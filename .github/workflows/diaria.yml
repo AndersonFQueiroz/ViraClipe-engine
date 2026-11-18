@@ -51,6 +51,13 @@ jobs:
       SCORE_W_LLM: ${{ vars.SCORE_W_LLM }}
       SIGNAL_W_CHAT: ${{ vars.SIGNAL_W_CHAT }}
       SIGNAL_W_AUDIO: ${{ vars.SIGNAL_W_AUDIO }}
+      # Foco de jogo (dono 18/11): 1 mês só de GTA 6 — expira sozinho em
+      # VIRACLIP_GAMES_UNTIL; vazio = pipeline normal de sempre.
+      VIRACLIP_GAMES: ${{ vars.VIRACLIP_GAMES }}
+      VIRACLIP_GAME_IDS: ${{ vars.VIRACLIP_GAME_IDS }}
+      VIRACLIP_GAMES_UNTIL: ${{ vars.VIRACLIP_GAMES_UNTIL }}
+      VIRACLIP_GAME_LABELS: ${{ vars.VIRACLIP_GAME_LABELS }}
+      VIRACLIP_GAME_FEED: ${{ vars.VIRACLIP_GAME_FEED }}
       VIRACLIP_PROMPT_B64: ${{ secrets.VIRACLIP_PROMPT_B64 }}
       VIRACLIP_BLOCKLIST_B64: ${{ secrets.VIRACLIP_BLOCKLIST_B64 }}
       VIRACLIP_PACK_JSON_B64: ${{ secrets.VIRACLIP_PACK_JSON_B64 }}
@@ -166,7 +173,8 @@ jobs:
                   if any(k in line for k in ("Discovery:", "Disco livre", "Candidatos:",
                                              "Transcritos:", "Selecionados", "QC OK",
                                              "QC FALHA", "FALHA", "FIM ", "Nenhuma VOD",
-                                             "falhou", "Pack logado", "Buffer OK", "SEM ")):
+                                             "falhou", "Pack logado", "Buffer OK", "SEM ",
+                                             "foco")):
                       res.append(line.strip()[:160])
           icon = "✅" if st == "success" else "🚨"
           msg = f"{icon} ViraClipe {day} — {st}\n" + ("\n".join(res[-12:]) if res else "(sem resumo no log)")

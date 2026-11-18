@@ -181,6 +181,23 @@ pytest -q
 Takedown: `/remover <cut_id> [motivo]` marca o corte como removido e joga o
 streamer na denylist permanente (apague o post no painel do Buffer).
 
+### 🎯 Foco de jogo (ex.: 1 mês só de GTA 6)
+
+O pipeline aceita um foco temporário de conteúdo — só cortes do jogo, na fonte
+A (clips) e na fonte B (VOD), com prazo que **expira sozinho**:
+
+| Variável (repo `ViraClipe-engine` > Variables) | Exemplo | Papel |
+|:---|:---|:---|
+| `VIRACLIP_GAMES` | `Grand Theft Auto VI` | nome(s) exato(s) do jogo (lista por vírgula) |
+| `VIRACLIP_GAME_IDS` | `1867279146` | id Twitch Helix — filtro 100%, não depende do nome |
+| `VIRACLIP_GAMES_UNTIL` | `2026-12-18` | último dia do foco (inclusivo); depois volta ao normal |
+| `VIRACLIP_GAME_LABELS` | `Grand Theft Auto VI=GTA 6` | rótulo curto na legenda e no título do YouTube |
+| `VIRACLIP_GAME_FEED` | `1` | opcional: reforço com o feed global do jogo, só PT |
+
+Sem `VIRACLIP_GAMES`/`VIRACLIP_GAME_IDS` o pipeline roda como sempre (sem filtro).
+VOD de YouTube não tem `game_id`: no foco ele só passa se o título casar
+(`GTA 6`, `GTA VI`, nome inteiro).
+
 ---
 
 ## 📚 Docs

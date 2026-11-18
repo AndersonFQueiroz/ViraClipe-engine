@@ -14,6 +14,7 @@ import requests
 
 from . import db as _db
 from . import net as _net
+from config import settings as _cfg
 
 PERMISSAO_RE = re.compile(
     r"cortes?\s+liberados?|pode\s+clipar|clipes?\s+liberados?|"
@@ -123,6 +124,7 @@ def fetch_twitch_vods(handle: str, client_id: str = "", client_secret: str = "",
             "duracao": _twitch_dur(str(v.get("duration") or "")),
             "viewers": int(v.get("view_count") or 0),
             "published_at": str(v.get("published_at") or ""),
+            "game_id": str(v.get("game_id") or ""),
         })
     return out
 
@@ -191,6 +193,55 @@ def fetch_youtube_vods(handle: str, api_key: str = "", http_get=None) -> list[di
     return out
 
 
+def _game_names(ids: list[str]) -> dict[str, str]:
+    """id -> nome via Helix /games (lote de 100). Falha = {} (filtro corta)."""
+    if not ids:
+        return {}
+    tw_id = os.environ.get("TWITCH_CLIENT_ID", "")
+    tw_sec = os.environ.get("TWITCH_CLIENT_SECRET", "")
+    if not (tw_id and tw_sec):
+        return {}
+    try:
+        token = _twitch_token(tw_id, tw_sec)
+    except Exception:
+        return {}
+    heads = {"Client-Id": tw_id, "Authorization": f"Bearer {token}"}
+    nomes: dict[str, str] = {}
+    for i in range(0, len(ids), 100):
+        try:
+            g = _http_get("https://api.twitch.tv/helix/games", heads,
+                          {"id": ids[i:i + 100]})
+        except Exception:
+            continue
+        for gg in (g.get("data") or []):
+            nomes[str(gg.get("id") or "")] = str(gg.get("name") or "")
+    return nomes
+
+
+def _filtrar_foco_vods(vods: list[dict], day: str) -> list[dict]:
+    """Só VODs do jogo do foco: Twitch por game_id (100% API), YouTube por título."""
+    if not _cfg.focus_active(day):
+        return vods
+    ids = sorted({str(v.get("game_id") or "") for v in vods
+                  if str(v.get("plataforma") or "") != "youtube"} - {""})
+    nomes = _game_names(ids)
+    out: list[dict] = []
+    for v in vods:
+        plat = str(v.get("plataforma") or "")
+        if plat == "youtube":
+            if _cfg.focus_title_match(str(v.get("titulo_vod") or ""), day):
+                out.append(v)
+            continue
+        gid = str(v.get("game_id") or "")
+        nome = nomes.get(gid, "")
+        if _cfg.focus_match(nome, gid, day):
+            v["jogo"] = _cfg.focus_jogo(nome, gid)
+            out.append(v)
+    print(f"Discovery foco: {len(out)}/{len(vods)} VOD(s) do jogo "
+          f"({', '.join(_cfg.focus_games()) or '?'}).")
+    return out
+
+
 def discover(
     day: str,
     db_path: Path,
@@ -232,6 +283,8 @@ def discover(
 
     # Sem cookies, YouTube não baixa (bot-check): Twitch/Kick primeiro.
     # Estável (mantém ordem de viewers dentro do grupo). Limite DEPOIS.
+    if _cfg.focus_active(day):
+        vods = _filtrar_foco_vods(vods, day)
     try:
         from .ingest import has_yt_cookies
         yt_ok = has_yt_cookies()

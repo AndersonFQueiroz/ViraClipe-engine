@@ -20,6 +20,7 @@ from . import db as _db
 from . import discovery as _disc
 from . import pack_redes as _pack
 from . import render as _render
+from config import settings as _cfg
 
 MIN_DUR = 15.0
 MAX_DUR = 60.0
@@ -83,6 +84,83 @@ def fetch_clips(handle: str, client_id: str = "", client_secret: str = "",
             "vod_offset": off,
             "game_id": str(c.get("game_id") or ""),
             "jogo": games.get(str(c.get("game_id") or ""), ""),
+            "language": str(c.get("language") or ""),
+            "broadcaster_id": str(c.get("broadcaster_id") or ""),
+        })
+    return out
+
+
+def fetch_game_clips(game_id: str, client_id: str = "", client_secret: str = "",
+                     days: int = DEFAULT_DAYS, language: str = "pt",
+                     max_paginas: int = 5,
+                     http_get=None, http_post=None) -> list[dict]:
+    """Clipes globais do jogo (Helix /clips?game_id=...), só do idioma pedido.
+
+    Reforço do foco (VIRACLIP_GAME_FEED=1): pega canais BR fora da whitelist
+    sem sair do português — o feed global mistura ru/en/de.
+    """
+    if not (game_id and client_id and client_secret):
+        return []
+    get = http_get or _disc._http_get
+    token = _disc._twitch_token(client_id, client_secret, http_post)
+    heads = {"Client-Id": client_id, "Authorization": f"Bearer {token}"}
+    start = (_dt.datetime.now(_dt.timezone.utc)
+             - _dt.timedelta(days=max(1, days))).isoformat(timespec="seconds")
+    linhas: list[dict] = []
+    cursor = ""
+    for _ in range(max(1, max_paginas)):
+        params: dict = {"game_id": game_id, "first": 100, "started_at": start}
+        if cursor:
+            params["after"] = cursor
+        res = get("https://api.twitch.tv/helix/clips", heads, params)
+        linhas.extend(res.get("data") or [])
+        cursor = str((res.get("pagination") or {}).get("cursor") or "")
+        if not cursor:
+            break
+    alvo = {"pt", "pt-br", "pt_br"}
+    linhas = [c for c in linhas if str(c.get("language") or "").lower() in alvo]
+    if not linhas:
+        return []
+    # Crédito pelo login real (nome de exibição pode diferir do @).
+    uids = sorted({str(c.get("broadcaster_id") or "") for c in linhas} - {""})
+    logins: dict[str, str] = {}
+    for i in range(0, len(uids), 100):
+        try:
+            u = get("https://api.twitch.tv/helix/users", heads, {"id": uids[i:i + 100]})
+        except Exception:
+            continue
+        for item in (u.get("data") or []):
+            logins[str(item.get("id"))] = str(
+                item.get("login") or item.get("display_name") or "")
+    out = []
+    for c in linhas:
+        cid = str(c.get("id") or "")
+        if not cid:
+            continue
+        try:
+            dur = float(c.get("duration") or 0)
+        except (TypeError, ValueError):
+            dur = 0.0
+        try:
+            off = c.get("vod_offset")
+            off = float(off) if off is not None else -1.0
+        except (TypeError, ValueError):
+            off = -1.0
+        bid = str(c.get("broadcaster_id") or "")
+        out.append({
+            "clip_id": cid,
+            "streamer": logins.get(bid) or str(c.get("broadcaster_name") or ""),
+            "url": str(c.get("url") or f"https://clips.twitch.tv/{cid}"),
+            "titulo_clip": str(c.get("title") or "")[:150],
+            "duracao": dur,
+            "views": int(c.get("view_count") or 0),
+            "created_at": str(c.get("created_at") or ""),
+            "vod_id": str(c.get("video_id") or ""),
+            "vod_offset": off,
+            "game_id": str(c.get("game_id") or game_id),
+            "jogo": _cfg.focus_jogo("", str(c.get("game_id") or game_id)),
+            "language": str(c.get("language") or ""),
+            "broadcaster_id": bid,
         })
     return out
 
@@ -207,22 +285,60 @@ def discover_clips(day: str, db_path: Path, factory_data: Path,
     fetch = fetch_fn or (lambda h: fetch_clips(h, tw_id, tw_sec))
     whitelist = [s for s in _disc.load_whitelist(db_path)
                  if s["plataforma"] == "twitch"]
+    foco = _cfg.focus_active(day)
     con = _db.connect(db_path)
     try:
         novos: list[dict] = []
+        fora_do_jogo = 0
+        vistos: set[str] = set()
+        momentos: set[tuple[str, int]] = set()
+
+        def _vale(c: dict) -> bool:
+            """Filtros de conteúdo comuns a todas as fontes de clipe."""
+            cid = str(c.get("clip_id") or "")
+            if not cid or cid in vistos:
+                return False
+            vod, off = str(c.get("vod_id") or ""), float(c.get("vod_offset") or -1)
+            if vod and off >= 0 and (vod, int(off // OFFSET_TOL)) in momentos:
+                return False
+            if not (min_dur <= float(c.get("duracao") or 0) <= max_dur):
+                return False
+            if int(c.get("views") or 0) < min_views:
+                return False
+            return not is_clip_duplicate(con, c)
+
+        def _add(c: dict) -> None:
+            vistos.add(str(c.get("clip_id") or ""))
+            vod, off = str(c.get("vod_id") or ""), float(c.get("vod_offset") or -1)
+            if vod and off >= 0:
+                momentos.add((vod, int(off // OFFSET_TOL)))
+            novos.append(c)
+
         for s in whitelist:
             try:
                 clips = fetch(s["handle"]) or []
             except Exception:
                 continue
             for c in clips:
-                if not (min_dur <= float(c.get("duracao") or 0) <= max_dur):
+                if foco and not _cfg.focus_match(
+                        str(c.get("jogo") or ""), str(c.get("game_id") or ""), day):
+                    fora_do_jogo += 1
                     continue
-                if int(c.get("views") or 0) < min_views:
-                    continue
-                if is_clip_duplicate(con, c):
-                    continue
-                novos.append(c)
+                c["jogo"] = _cfg.focus_jogo(
+                    str(c.get("jogo") or ""), str(c.get("game_id") or ""))
+                if _vale(c):
+                    _add(c)
+        # Reforço opcional do foco: feed global do jogo, só PT (BRs fora da
+        # whitelist). Desligado por padrão; liga com VIRACLIP_GAME_FEED=1.
+        if foco and os.environ.get("VIRACLIP_GAME_FEED", "").strip() == "1":
+            for gid in sorted(_cfg.focus_ids()):
+                try:
+                    extras = fetch_game_clips(gid, tw_id, tw_sec)
+                except Exception:
+                    extras = []
+                for c in extras:
+                    if _vale(c):
+                        _add(c)
         # Rodízio: quem apareceu ontem vai p/ fim da fila (peso views ×
         # recência); viral gigante ainda fura. Desempate: views puras.
         for c in novos:
@@ -259,6 +375,9 @@ def discover_clips(day: str, db_path: Path, factory_data: Path,
     )
     print(f"clips: {len(escolhidos)} novo(s) em {day} "
           f"({len(novos)} vistos-no-dia, resto já era repetido/filtro)")
+    if foco:
+        print(f"clips: foco {', '.join(_cfg.focus_games()) or '?'} — "
+              f"{len(novos)} no jogo, {fora_do_jogo} fora do jogo.")
     return escolhidos
 
 
@@ -306,10 +425,14 @@ def _clip_to_scored(clip: dict, mp4: Path, legenda: dict | None = None) -> dict:
     jogo = str(clip.get("jogo") or "").strip()[:60]
     tags = list(leg.get("hashtags") or [])
     if jogo:
-        slug = "".join(ch for ch in jogo.lower() if ch.isalnum())[:30]
+        slug = _cfg.game_hashtag(jogo)
         if slug and slug not in [str(t).lower() for t in tags]:
             tags = ([slug] + tags)[:5]
     original = str(clip.get("titulo_clip") or "").strip()
+    # Título original vazio/curto demais ("a", ".", "kkk"): post fica sem
+    # graça — nesse caso só cai no título da IA (original segue preferido).
+    if len([ch for ch in original if ch.isalnum()]) < 4:
+        original = ""
     return {
         "cut_id": f"clip-{cid[:32]}",
         "video_id": f"clip:{cid}",

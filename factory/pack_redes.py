@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 
 from config.secret_loader import get_cta, get_handle, get_tags_base
+from config import settings as _cfg
 
 # Defaults públicos capados — full via VIRACLIP_PACK_JSON / VIRACLIP_TAGS / VIRACLIP_CTA_*.
 TAGS_BASE = ["cortes", "clipes", "livetwitch", "melhoresmomentos", "viral"]
@@ -122,7 +123,7 @@ def caption_for(corte: dict, network: str = "instagram") -> tuple[str, str]:
     handle = _live_handle()
     streamer = str(corte.get("streamer") or "").strip().lstrip("@")
     titulo = str(corte.get("titulo") or "Melhor momento")[:90].strip()
-    jogo = str(corte.get("jogo") or "").strip()[:60]
+    jogo = _cfg.game_label(str(corte.get("jogo") or ""))[:60]
     linhas = [titulo or "Melhor momento"]
     if streamer:
         linhas.append(f"@{streamer}")
@@ -145,7 +146,11 @@ def build_pack(day_dir: Path, finais: list[dict],
         cap, first = caption_for(c, "instagram")
         cap_tt, _ = caption_for(c, "tiktok")
         captions[key], firsts[key], captions_tt[key] = cap, first, cap_tt
-        titles[key] = f"@{c.get('streamer','')} — {str(c.get('titulo',''))[:60]}"[:95]
+        titulo_yt = f"@{c.get('streamer','')} — {str(c.get('titulo',''))[:60]}"
+        rotulo = _cfg.game_label(str(c.get("jogo") or ""))
+        if rotulo:  # busca por jogo no YouTube ("GTA 6")
+            titulo_yt = f"{titulo_yt} | {rotulo}"
+        titles[key] = titulo_yt[:95]
         videos[key] = str(c["mp4"])
     cta = _live_cta()
     pack = {
